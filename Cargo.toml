@@ -1,0 +1,34 @@
+[package]
+name = "shiguredo_video_device"
+version = "2026.0.0"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Shiguredo Inc."]
+license = "Apache-2.0"
+description = "Cross-platform video device library"
+homepage = "https://github.com/shiguredo/video-device-rs"
+repository = "https://github.com/shiguredo/video-device-rs"
+readme = "README.md"
+build = "build.rs"
+
+[dependencies]
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Media_MediaFoundation",
+    "Win32_System_Com",
+    "Win32_Foundation",
+] }
+
+[features]
+default = ["v4l2"]
+v4l2 = []
+pipewire = []
+
+[dev-dependencies]
+nojson = "0.3"
+
+[build-dependencies]
+bindgen = "0.72"
+cc = "1"
+pkg-config = "0.3"
