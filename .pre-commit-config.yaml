@@ -7,6 +7,12 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+      - id: clang-format
+        name: clang-format
+        entry: clang-format --dry-run --Werror
+        language: system
+        files: ^crates/libcamera-rs/wrapper/
+        types_or: [c, c++, c#, objective-c]
       - id: cargo-clippy
         name: cargo clippy
         entry: cargo clippy --workspace --all-targets -- -D warnings
