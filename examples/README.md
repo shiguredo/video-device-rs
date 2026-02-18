@@ -15,3 +15,13 @@ cargo run --example device_list
 ```bash
 cargo run --example device_info
 ```
+
+## camera_preview
+
+カメラ映像をキャプチャして raw-player でプレビュー表示する。
+
+```bash
+cargo run --example camera_preview -- --list-devices
+cargo run --example camera_preview
+cargo run --example camera_preview -- --resolution 1080p --fps 60
+```
