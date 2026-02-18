@@ -1,4 +1,4 @@
-use shiguredo_libcamera_sys as ffi;
+use crate::sys as ffi;
 
 use crate::camera::Camera;
 use crate::error::{Error, Result};

@@ -1,4 +1,4 @@
-use shiguredo_libcamera_sys as ffi;
+use crate::sys as ffi;
 
 /// フレームバッファのプレーン情報
 #[derive(Debug, Clone, Copy)]

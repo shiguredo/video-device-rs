@@ -1,6 +1,6 @@
 use std::fmt;
 
-use shiguredo_libcamera_sys as ffi;
+use crate::sys as ffi;
 
 /// ピクセルフォーマット (fourcc + modifier)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

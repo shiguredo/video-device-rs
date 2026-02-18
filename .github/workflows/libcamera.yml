@@ -45,7 +45,6 @@ jobs:
           sudo rm -rf /opt/rpi-sysroot/dev
           # usrmerge シンボリックリンクを作成する（リンカスクリプト内の絶対パス /lib/... を解決するため）
           sudo ln -sf usr/lib /opt/rpi-sysroot/lib
-      - run: cargo fmt --manifest-path crates/libcamera-sys/Cargo.toml --check
       - run: cargo fmt --manifest-path crates/libcamera-rs/Cargo.toml --check
       - run: cargo check --manifest-path crates/libcamera-rs/Cargo.toml --target aarch64-unknown-linux-gnu
       - run: cargo clippy --manifest-path crates/libcamera-rs/Cargo.toml --target aarch64-unknown-linux-gnu -- -D warnings

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use shiguredo_libcamera_sys as ffi;
+use crate::sys as ffi;
 
 use crate::controls::ControlList;
 use crate::error::{Error, Result};

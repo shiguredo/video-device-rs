@@ -6,9 +6,12 @@ rust-version = "1.88"
 authors = ["Shiguredo Inc."]
 license = "Apache-2.0"
 description = "Safe Rust bindings for libcamera"
+links = "camera_wrapper"
 
-[dependencies]
-shiguredo_libcamera_sys = { path = "../libcamera-sys" }
+[build-dependencies]
+bindgen = "0.72"
+cc = "1"
+pkg-config = "0.3"
 
 [dev-dependencies]
 nojson = "0.3"

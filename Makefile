@@ -67,7 +67,7 @@ docker-build:
 
 # Docker コンテナ内で libcamera クレートの cargo check を実行する
 docker-check:
-	$(DOCKER_RUN) sh -c 'echo "libcamera: $$(pkg-config --modversion libcamera)" && cargo check -p shiguredo_libcamera_sys -p shiguredo_libcamera --examples'
+	$(DOCKER_RUN) sh -c 'echo "libcamera: $$(pkg-config --modversion libcamera)" && cargo check -p shiguredo_libcamera --examples'
 
 # Docker コンテナにシェル接続する
 docker-shell:
