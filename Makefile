@@ -1,4 +1,8 @@
-.PHONY: test cover pbt pbt-cover fuzz fuzzing fuzzing-parallel fuzzing-list check clippy fmt clean
+.PHONY: test cover pbt pbt-cover fuzz fuzzing fuzzing-parallel fuzzing-list check clippy fmt clean \
+       docker-build docker-check docker-shell
+
+DOCKER_IMAGE := video-device-rs-builder
+DOCKER_RUN := docker run --rm -v $(PWD):/work -v cargo-cache:/root/.cargo/registry $(DOCKER_IMAGE)
 
 # 全テストを実行する
 test:
@@ -56,3 +60,15 @@ fmt:
 # ビルド成果物を削除する
 clean:
 	cargo clean
+
+# Docker イメージをビルドする
+docker-build:
+	docker build -t $(DOCKER_IMAGE) .
+
+# Docker コンテナ内で libcamera クレートの cargo check を実行する
+docker-check:
+	$(DOCKER_RUN) sh -c 'echo "libcamera: $$(pkg-config --modversion libcamera)" && cargo check -p shiguredo_libcamera_sys -p shiguredo_libcamera --examples'
+
+# Docker コンテナにシェル接続する
+docker-shell:
+	docker run --rm -it -v $(PWD):/work -v cargo-cache:/root/.cargo/registry $(DOCKER_IMAGE) bash
