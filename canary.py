@@ -85,6 +85,15 @@ def update_version(file_path: str, dry_run: bool) -> Optional[str]:
     return new_version
 
 
+# cargo update shiguredo_video_device を実行
+def run_cargo_update(dry_run: bool) -> None:
+    if dry_run:
+        print("Dry-run: Would run 'cargo update shiguredo_video_device'")
+    else:
+        subprocess.run(["cargo", "update", "shiguredo_video_device"], check=True)
+        print("cargo update shiguredo_video_device executed")
+
+
 # git コミット、タグ、プッシュを実行
 def git_commit_version(new_version: str, dry_run: bool) -> None:
     if dry_run:
@@ -130,6 +139,9 @@ def main() -> None:
 
     if not new_version:
         return  # ユーザーが確認をキャンセルした場合、処理を中断
+
+    # cargo update shiguredo_video_device を実行
+    run_cargo_update(args.dry_run)
 
     # バージョン更新後に git commit
     git_commit_version(new_version, args.dry_run)
