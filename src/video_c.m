@@ -304,10 +304,14 @@ struct VideoSession* video_session_create(const char* device_id, int width, int 
     AVCaptureVideoDataOutput* output = [[AVCaptureVideoDataOutput alloc] init];
     output.alwaysDiscardsLateVideoFrames = YES;
 
-    // NV12 形式を優先
+    // NV12 形式を優先し、出力解像度を明示指定する
+    // macOS では sessionPreset のデフォルト（AVCaptureSessionPresetHigh = 1080p）が
+    // device.activeFormat の解像度を上書きするため、videoSettings で幅・高さを指定する必要がある
     output.videoSettings = @{
         (NSString*)kCVPixelBufferPixelFormatTypeKey:
-            @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
+            @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+        (NSString*)kCVPixelBufferWidthKey: @(width),
+        (NSString*)kCVPixelBufferHeightKey: @(height),
     };
 
     if (![session canAddOutput:output]) {
