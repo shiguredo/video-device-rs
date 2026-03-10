@@ -48,6 +48,7 @@ fn build_macos(src_dir: &Path) {
 
     // macOS フレームワークをリンク
     println!("cargo::rustc-link-lib=framework=AVFoundation");
+    println!("cargo::rustc-link-lib=framework=CoreFoundation");
     println!("cargo::rustc-link-lib=framework=CoreMedia");
     println!("cargo::rustc-link-lib=framework=CoreVideo");
     println!("cargo::rustc-link-lib=framework=Foundation");

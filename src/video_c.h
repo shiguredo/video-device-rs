@@ -28,6 +28,7 @@ struct VideoFormatEntry {
 // NV12 の場合: data は Y プレーン、uv_data は UV インターリーブプレーン
 // YUY2 の場合: data はパックドデータ、uv_data は NULL
 // I420 の場合: data は Y プレーン、uv_data は U プレーン + V プレーンを連結したデータ
+// pixel_buffer: macOS の CVPixelBuffer。未対応プラットフォームでは NULL
 typedef void (*FrameCallback)(void* user_data,
                                const uint8_t* data,
                                const uint8_t* uv_data,
@@ -36,7 +37,8 @@ typedef void (*FrameCallback)(void* user_data,
                                int stride,
                                int stride_uv,
                                uint32_t pixel_format,
-                               int64_t timestamp_us);
+                               int64_t timestamp_us,
+                               void* pixel_buffer);
 
 // デバイス列挙
 // 成功時は 0、失敗時は負の値を返す

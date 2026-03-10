@@ -1,4 +1,5 @@
 #import <AVFoundation/AVFoundation.h>
+#import <CoreFoundation/CoreFoundation.h>
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 #import <Foundation/Foundation.h>
@@ -51,17 +52,20 @@ struct VideoDevice {
         size_t strideY = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 0);
         size_t strideUV = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 1);
 
+        CFRetain(imageBuffer);
         self.callback(self.userData, yPlane, uvPlane, (int)width, (int)height,
                       (int)strideY, (int)strideUV, VIDEO_PIXEL_FORMAT_NV12,
-                      timestamp_us);
+                      timestamp_us, (void*)imageBuffer);
     } else if (pixelFormat == kCVPixelFormatType_422YpCbCr8_yuvs ||
                pixelFormat == kCVPixelFormatType_422YpCbCr8) {
         // YUY2 形式
         const uint8_t* data = CVPixelBufferGetBaseAddress(imageBuffer);
         size_t stride = CVPixelBufferGetBytesPerRow(imageBuffer);
 
+        CFRetain(imageBuffer);
         self.callback(self.userData, data, NULL, (int)width, (int)height,
-                      (int)stride, 0, VIDEO_PIXEL_FORMAT_YUY2, timestamp_us);
+                      (int)stride, 0, VIDEO_PIXEL_FORMAT_YUY2, timestamp_us,
+                      (void*)imageBuffer);
     } else if (pixelFormat == kCVPixelFormatType_420YpCbCr8Planar ||
                pixelFormat == kCVPixelFormatType_420YpCbCr8PlanarFullRange) {
         // I420 形式。U/V 平面は連結バッファへ詰め替える
@@ -83,9 +87,10 @@ struct VideoDevice {
                        vPlane + row * strideV, strideV);
             }
 
+            CFRetain(imageBuffer);
             self.callback(self.userData, yPlane, uvBuffer, (int)width, (int)height,
                           (int)strideY, (int)strideUV, VIDEO_PIXEL_FORMAT_I420,
-                          timestamp_us);
+                          timestamp_us, (void*)imageBuffer);
             free(uvBuffer);
         }
     }

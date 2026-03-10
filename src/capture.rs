@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::error::{Error, Result};
 use crate::ffi;
-use crate::types::{CaptureContext, PixelFormat, VideoCaptureConfig, VideoFrame};
+use crate::types::{CaptureContext, PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFrame};
 
 pub struct VideoCapture {
     session: Option<NonNull<ffi::VideoSession>>,
@@ -118,7 +118,10 @@ extern "C" fn frame_callback(
     stride_uv: i32,
     pixel_format: u32,
     timestamp_us: i64,
+    pixel_buffer: *mut std::ffi::c_void,
 ) {
+    let pixel_buffer = unsafe { PixelBuffer::from_retained_ptr(pixel_buffer) };
+
     if user_data.is_null() || data.is_null() || width <= 0 || height <= 0 {
         return;
     }
@@ -149,6 +152,7 @@ extern "C" fn frame_callback(
                 stride_uv,
                 pixel_format: pf,
                 timestamp_us,
+                pixel_buffer,
             }
         }
         PixelFormat::I420 => {
@@ -171,6 +175,7 @@ extern "C" fn frame_callback(
                 stride_uv,
                 pixel_format: pf,
                 timestamp_us,
+                pixel_buffer,
             }
         }
         PixelFormat::Yuy2 => {
@@ -186,6 +191,7 @@ extern "C" fn frame_callback(
                 stride_uv: 0,
                 pixel_format: pf,
                 timestamp_us,
+                pixel_buffer,
             }
         }
         PixelFormat::Unknown(_) => return,

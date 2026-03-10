@@ -29,4 +29,6 @@ pub use capture_windows::VideoCapture;
 pub use device_windows::{VideoDevice, VideoDeviceList};
 
 pub use error::{Error, Result};
-pub use types::{PixelFormat, VideoCaptureConfig, VideoFormat, VideoFrame, VideoFrameOwned};
+pub use types::{
+    PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFormat, VideoFrame, VideoFrameOwned,
+};

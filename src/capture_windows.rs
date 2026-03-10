@@ -452,6 +452,7 @@ unsafe fn process_sample(
                     stride_uv: width,
                     pixel_format,
                     timestamp_us,
+                    pixel_buffer: None,
                 }
             }
             PixelFormat::I420 => {
@@ -472,6 +473,7 @@ unsafe fn process_sample(
                     stride_uv: width / 2,
                     pixel_format,
                     timestamp_us,
+                    pixel_buffer: None,
                 }
             }
             PixelFormat::Yuy2 => {
@@ -485,6 +487,7 @@ unsafe fn process_sample(
                     stride_uv: 0,
                     pixel_format,
                     timestamp_us,
+                    pixel_buffer: None,
                 }
             }
             PixelFormat::Unknown(_) => {

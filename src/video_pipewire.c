@@ -355,12 +355,12 @@ static void on_process(void* userdata) {
 
             session->callback(session->user_data, data, uv_data, width,
                               height, stride, stride_uv,
-                              VIDEO_PIXEL_FORMAT_NV12, timestamp_us);
+                              VIDEO_PIXEL_FORMAT_NV12, timestamp_us, NULL);
         } else if (format == VIDEO_PIXEL_FORMAT_YUY2) {
             // YUY2: パックドフォーマット
             session->callback(session->user_data, data, NULL, width,
                               height, stride, 0,
-                              VIDEO_PIXEL_FORMAT_YUY2, timestamp_us);
+                              VIDEO_PIXEL_FORMAT_YUY2, timestamp_us, NULL);
         } else if (format == VIDEO_PIXEL_FORMAT_I420) {
             // I420: Y, U, V が連続
             int y_size = stride * height;
@@ -369,7 +369,7 @@ static void on_process(void* userdata) {
 
             session->callback(session->user_data, data, uv_data, width,
                               height, stride, stride_uv,
-                              VIDEO_PIXEL_FORMAT_I420, timestamp_us);
+                              VIDEO_PIXEL_FORMAT_I420, timestamp_us, NULL);
         }
     }
 

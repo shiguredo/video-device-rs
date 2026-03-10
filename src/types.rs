@@ -1,5 +1,12 @@
+use std::ffi::c_void;
 use std::fmt;
 use std::sync::atomic::AtomicBool;
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn CFRetain(cf: *const c_void) -> *const c_void;
+    fn CFRelease(cf: *const c_void);
+}
 
 /// ピクセルフォーマット定数 (video_c.h と同じ値)
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -65,6 +72,74 @@ impl fmt::Display for PixelFormat {
     }
 }
 
+/// macOS の CVPixelBuffer へのオペーク参照
+///
+/// Clone で retain、Drop で release する。
+#[derive(Default)]
+pub struct PixelBuffer {
+    ptr: *mut c_void,
+}
+
+impl PixelBuffer {
+    /// 生ポインタを取得する
+    pub fn as_ptr(&self) -> *mut c_void {
+        self.ptr
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub(crate) unsafe fn from_retained_ptr(ptr: *mut c_void) -> Option<Self> {
+        if ptr.is_null() {
+            None
+        } else {
+            Some(Self { ptr })
+        }
+    }
+}
+
+impl Clone for PixelBuffer {
+    fn clone(&self) -> Self {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            if !self.ptr.is_null() {
+                let _ = CFRetain(self.ptr.cast_const());
+            }
+        }
+
+        Self { ptr: self.ptr }
+    }
+}
+
+impl Drop for PixelBuffer {
+    fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        unsafe {
+            if !self.ptr.is_null() {
+                CFRelease(self.ptr.cast_const());
+            }
+        }
+    }
+}
+
+impl fmt::Debug for PixelBuffer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PixelBuffer")
+            .field("ptr", &self.ptr)
+            .finish()
+    }
+}
+
+impl PartialEq for PixelBuffer {
+    fn eq(&self, other: &Self) -> bool {
+        self.ptr == other.ptr
+    }
+}
+
+impl Eq for PixelBuffer {}
+
+// Core Foundation の参照カウントはスレッドセーフで、保持しているのは不透明ポインタのみ。
+unsafe impl Send for PixelBuffer {}
+unsafe impl Sync for PixelBuffer {}
+
 /// ビデオデバイスが対応するフォーマット
 #[derive(Debug, Clone)]
 pub struct VideoFormat {
@@ -124,6 +199,8 @@ pub struct VideoFrame<'a> {
     pub pixel_format: PixelFormat,
     /// タイムスタンプ (マイクロ秒)
     pub timestamp_us: i64,
+    /// CVPixelBuffer へのオペーク参照 (macOS のみ)
+    pub pixel_buffer: Option<PixelBuffer>,
 }
 
 impl<'a> VideoFrame<'a> {
@@ -138,6 +215,7 @@ impl<'a> VideoFrame<'a> {
             stride_uv: self.stride_uv,
             pixel_format: self.pixel_format,
             timestamp_us: self.timestamp_us,
+            pixel_buffer: self.pixel_buffer.clone(),
         }
     }
 }
@@ -161,6 +239,8 @@ pub struct VideoFrameOwned {
     pub pixel_format: PixelFormat,
     /// タイムスタンプ (マイクロ秒)
     pub timestamp_us: i64,
+    /// CVPixelBuffer へのオペーク参照 (macOS のみ)
+    pub pixel_buffer: Option<PixelBuffer>,
 }
 
 impl VideoFrameOwned {
@@ -175,6 +255,7 @@ impl VideoFrameOwned {
             stride_uv: self.stride_uv,
             pixel_format: self.pixel_format,
             timestamp_us: self.timestamp_us,
+            pixel_buffer: self.pixel_buffer.clone(),
         }
     }
 }

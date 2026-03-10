@@ -558,11 +558,12 @@ static void* capture_thread(void* arg) {
 
                 session->callback(session->user_data, data, uv_data, session->width,
                                   session->height, session->width, session->width,
-                                  VIDEO_PIXEL_FORMAT_NV12, timestamp_us);
+                                  VIDEO_PIXEL_FORMAT_NV12, timestamp_us, NULL);
             } else if (session->pixel_format == V4L2_PIX_FMT_YUYV) {
                 // YUY2: パックドフォーマット
                 session->callback(session->user_data, data, NULL, session->width, session->height,
-                                  session->width * 2, 0, VIDEO_PIXEL_FORMAT_YUY2, timestamp_us);
+                                  session->width * 2, 0, VIDEO_PIXEL_FORMAT_YUY2, timestamp_us,
+                                  NULL);
             }
         }
 
