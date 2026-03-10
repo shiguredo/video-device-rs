@@ -50,11 +50,19 @@ impl VideoCapture {
             let media_source = activate_device(config.device_id.as_deref())?;
 
             // SourceReader を作成
-            let source_reader =
-                create_source_reader(&media_source, config.width, config.height, config.fps)?;
+            let source_reader = create_source_reader(
+                &media_source,
+                config.width,
+                config.height,
+                config.fps,
+                config.pixel_format,
+            )?;
 
             // 設定されたメディアタイプからフォーマット情報を取得
             let (pixel_format, width, height) = get_configured_format(&source_reader)?;
+            if matches!(pixel_format, PixelFormat::Unknown(_)) {
+                return Err(Error::UnsupportedPixelFormat(pixel_format));
+            }
 
             let context = Arc::new(CaptureContext {
                 callback: Box::new(callback),
@@ -232,6 +240,7 @@ unsafe fn create_source_reader(
     width: i32,
     height: i32,
     fps: i32,
+    requested_pixel_format: Option<PixelFormat>,
 ) -> Result<IMFSourceReader> {
     unsafe {
         // SourceReader を作成
@@ -247,34 +256,31 @@ unsafe fn create_source_reader(
             .SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video)
             .map_err(|_| Error::SessionCreateFailed)?;
 
-        // NV12 を試す
-        let result = try_set_format(
-            &source_reader,
-            &media_type,
-            &MFVideoFormat_NV12,
-            width,
-            height,
-            fps,
-        );
-        if result.is_ok() {
+        if let Some(pixel_format) = requested_pixel_format {
+            let subtype = pixel_format_to_guid(pixel_format)
+                .ok_or(Error::UnsupportedPixelFormat(pixel_format))?;
+            try_set_format(&source_reader, &media_type, &subtype, width, height, fps)
+                .map_err(|_| Error::UnsupportedPixelFormat(pixel_format))?;
             return Ok(source_reader);
         }
 
-        // YUY2 を試す
-        let result = try_set_format(
-            &source_reader,
-            &media_type,
-            &MFVideoFormat_YUY2,
-            width,
-            height,
-            fps,
-        );
-        if result.is_ok() {
-            return Ok(source_reader);
+        for subtype in [MFVideoFormat_NV12, MFVideoFormat_YUY2, MFVideoFormat_I420] {
+            if try_set_format(&source_reader, &media_type, &subtype, width, height, fps).is_ok() {
+                return Ok(source_reader);
+            }
         }
 
-        // どちらも失敗した場合はネイティブフォーマットを使用
+        // どの指定も失敗した場合はネイティブフォーマットを使用
         Ok(source_reader)
+    }
+}
+
+fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<GUID> {
+    match pixel_format {
+        PixelFormat::Nv12 => Some(MFVideoFormat_NV12),
+        PixelFormat::Yuy2 => Some(MFVideoFormat_YUY2),
+        PixelFormat::I420 => Some(MFVideoFormat_I420),
+        PixelFormat::Unknown(_) => None,
     }
 }
 
@@ -337,8 +343,7 @@ unsafe fn get_configured_format(
         } else if subtype == MFVideoFormat_I420 {
             PixelFormat::I420
         } else {
-            // サポートされていないフォーマット、NV12 として扱う
-            PixelFormat::Nv12
+            PixelFormat::Unknown(subtype.data1)
         };
 
         // フレームサイズを取得

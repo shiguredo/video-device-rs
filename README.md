@@ -98,6 +98,7 @@ let config = VideoCaptureConfig {
     width: 1280,
     height: 720,
     fps: 30,
+    pixel_format: None, // 未指定ならデフォルト選択。Some(shiguredo_video_device::PixelFormat::Yuy2) のように指定可能
 };
 
 // コールバックでフレームを受信

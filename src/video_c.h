@@ -24,9 +24,10 @@ struct VideoFormatEntry {
 };
 
 // フレームコールバック
-// pixel_format: VIDEO_PIXEL_FORMAT_NV12 または VIDEO_PIXEL_FORMAT_YUY2
+// pixel_format: VIDEO_PIXEL_FORMAT_NV12 / VIDEO_PIXEL_FORMAT_YUY2 / VIDEO_PIXEL_FORMAT_I420
 // NV12 の場合: data は Y プレーン、uv_data は UV インターリーブプレーン
 // YUY2 の場合: data はパックドデータ、uv_data は NULL
+// I420 の場合: data は Y プレーン、uv_data は U プレーン + V プレーンを連結したデータ
 typedef void (*FrameCallback)(void* user_data,
                                const uint8_t* data,
                                const uint8_t* uv_data,
@@ -58,10 +59,12 @@ const struct VideoFormatEntry* video_device_get_format(struct VideoDevice* devic
 
 // セッションを作成
 // device_id が NULL の場合はデフォルトデバイスを使用
+// pixel_format が 0 の場合はデフォルト選択
 struct VideoSession* video_session_create(const char* device_id,
                                            int width,
                                            int height,
-                                           int fps);
+                                           int fps,
+                                           uint32_t pixel_format);
 
 // セッションを破棄
 void video_session_destroy(struct VideoSession* session);

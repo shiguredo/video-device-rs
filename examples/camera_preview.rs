@@ -253,6 +253,7 @@ fn main() {
         width: args.width,
         height: args.height,
         fps: args.fps,
+        pixel_format: None,
     };
     let mut video_capture = VideoCapture::new(video_config, move |frame: VideoFrame<'_>| {
         let _ = tx.send(frame.to_owned());

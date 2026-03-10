@@ -62,6 +62,32 @@ struct VideoDevice {
 
         self.callback(self.userData, data, NULL, (int)width, (int)height,
                       (int)stride, 0, VIDEO_PIXEL_FORMAT_YUY2, timestamp_us);
+    } else if (pixelFormat == kCVPixelFormatType_420YpCbCr8Planar ||
+               pixelFormat == kCVPixelFormatType_420YpCbCr8PlanarFullRange) {
+        // I420 形式。U/V 平面は連結バッファへ詰め替える
+        const uint8_t* yPlane = CVPixelBufferGetBaseAddressOfPlane(imageBuffer, 0);
+        const uint8_t* uPlane = CVPixelBufferGetBaseAddressOfPlane(imageBuffer, 1);
+        const uint8_t* vPlane = CVPixelBufferGetBaseAddressOfPlane(imageBuffer, 2);
+        size_t strideY = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 0);
+        size_t strideU = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 1);
+        size_t strideV = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 2);
+        size_t chromaHeight = (height + 1) / 2;
+        size_t strideUV = strideU > strideV ? strideU : strideV;
+        size_t uvSize = strideUV * chromaHeight * 2;
+        uint8_t* uvBuffer = (uint8_t*)calloc(1, uvSize);
+
+        if (uvBuffer) {
+            for (size_t row = 0; row < chromaHeight; row++) {
+                memcpy(uvBuffer + row * strideUV, uPlane + row * strideU, strideU);
+                memcpy(uvBuffer + strideUV * chromaHeight + row * strideUV,
+                       vPlane + row * strideV, strideV);
+            }
+
+            self.callback(self.userData, yPlane, uvBuffer, (int)width, (int)height,
+                          (int)strideY, (int)strideUV, VIDEO_PIXEL_FORMAT_I420,
+                          timestamp_us);
+            free(uvBuffer);
+        }
     }
 
     CVPixelBufferUnlockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
@@ -93,6 +119,30 @@ static uint32_t convert_pixel_format(OSType format) {
         default:
             return 0;
     }
+}
+
+static OSType convert_video_pixel_format_to_cv(uint32_t pixel_format) {
+    switch (pixel_format) {
+        case 0:
+        case VIDEO_PIXEL_FORMAT_NV12:
+            return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+        case VIDEO_PIXEL_FORMAT_YUY2:
+            return kCVPixelFormatType_422YpCbCr8_yuvs;
+        case VIDEO_PIXEL_FORMAT_I420:
+            return kCVPixelFormatType_420YpCbCr8Planar;
+        default:
+            return 0;
+    }
+}
+
+static BOOL output_supports_pixel_format(AVCaptureVideoDataOutput* output,
+                                         OSType pixelFormat) {
+    for (NSNumber* value in output.availableVideoCVPixelFormatTypes) {
+        if ((OSType)value.unsignedIntValue == pixelFormat) {
+            return YES;
+        }
+    }
+    return NO;
 }
 
 int video_enumerate_devices(struct VideoDevice*** devices, int* count) {
@@ -260,7 +310,9 @@ const struct VideoFormatEntry* video_device_get_format(struct VideoDevice* devic
     return &device->formats[index];
 }
 
-struct VideoSession* video_session_create(const char* device_id, int width, int height, int fps) {
+struct VideoSession* video_session_create(const char* device_id, int width,
+                                          int height, int fps,
+                                          uint32_t requested_pixel_format) {
     AVCaptureDevice* device = nil;
 
     if (device_id) {
@@ -304,12 +356,20 @@ struct VideoSession* video_session_create(const char* device_id, int width, int 
     AVCaptureVideoDataOutput* output = [[AVCaptureVideoDataOutput alloc] init];
     output.alwaysDiscardsLateVideoFrames = YES;
 
-    // NV12 形式を優先し、出力解像度を明示指定する
+    OSType outputPixelFormat =
+        convert_video_pixel_format_to_cv(requested_pixel_format);
+    if (outputPixelFormat == 0 ||
+        !output_supports_pixel_format(output, outputPixelFormat)) {
+        free(videoSession);
+        return NULL;
+    }
+
+    // 出力形式を指定し、出力解像度を明示指定する
     // macOS では sessionPreset のデフォルト（AVCaptureSessionPresetHigh = 1080p）が
     // device.activeFormat の解像度を上書きするため、videoSettings で幅・高さを指定する必要がある
     output.videoSettings = @{
         (NSString*)kCVPixelBufferPixelFormatTypeKey:
-            @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+            @(outputPixelFormat),
         (NSString*)kCVPixelBufferWidthKey: @(width),
         (NSString*)kCVPixelBufferHeightKey: @(height),
     };

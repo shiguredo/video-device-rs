@@ -90,6 +90,8 @@ pub struct VideoCaptureConfig {
     pub height: i32,
     /// フレームレート
     pub fps: i32,
+    /// 取得するピクセルフォーマット (None の場合はデフォルト選択)
+    pub pixel_format: Option<PixelFormat>,
 }
 
 impl Default for VideoCaptureConfig {
@@ -99,6 +101,7 @@ impl Default for VideoCaptureConfig {
             width: 640,
             height: 480,
             fps: 30,
+            pixel_format: None,
         }
     }
 }

@@ -63,6 +63,19 @@ static uint32_t convert_v4l2_pixel_format(uint32_t v4l2_format) {
     }
 }
 
+static uint32_t convert_video_pixel_format_to_v4l2(uint32_t pixel_format) {
+    switch (pixel_format) {
+        case VIDEO_PIXEL_FORMAT_NV12:
+            return V4L2_PIX_FMT_NV12;
+        case VIDEO_PIXEL_FORMAT_YUY2:
+            return V4L2_PIX_FMT_YUYV;
+        case VIDEO_PIXEL_FORMAT_I420:
+            return V4L2_PIX_FMT_YUV420;
+        default:
+            return 0;
+    }
+}
+
 // デバイスのフォーマット情報を列挙
 static int enumerate_device_formats(const char* path, struct VideoFormatEntry** out_formats,
                                      int* out_count) {
@@ -386,7 +399,9 @@ static void cleanup_mmap(struct VideoSession* session) {
     }
 }
 
-struct VideoSession* video_session_create(const char* device_id, int width, int height, int fps) {
+struct VideoSession* video_session_create(const char* device_id, int width,
+                                          int height, int fps,
+                                          uint32_t requested_pixel_format) {
     const char* device_path = device_id ? device_id : "/dev/video0";
 
     int fd = open(device_path, O_RDWR | O_NONBLOCK);
@@ -414,18 +429,34 @@ struct VideoSession* video_session_create(const char* device_id, int width, int 
     fmt.fmt.pix.height = height;
     fmt.fmt.pix.field = V4L2_FIELD_NONE;
 
-    // NV12 を優先的に試す
-    uint32_t pixel_format = V4L2_PIX_FMT_NV12;
-    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_NV12;
-
-    if (xioctl(fd, VIDIOC_S_FMT, &fmt) < 0 || fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_NV12) {
-        // YUY2 を試す
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-        if (xioctl(fd, VIDIOC_S_FMT, &fmt) < 0 || fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
+    uint32_t pixel_format = 0;
+    if (requested_pixel_format != 0) {
+        pixel_format = convert_video_pixel_format_to_v4l2(requested_pixel_format);
+        if (pixel_format == 0) {
             close(fd);
             return NULL;
         }
-        pixel_format = V4L2_PIX_FMT_YUYV;
+        fmt.fmt.pix.pixelformat = pixel_format;
+        if (xioctl(fd, VIDIOC_S_FMT, &fmt) < 0 || fmt.fmt.pix.pixelformat != pixel_format) {
+            close(fd);
+            return NULL;
+        }
+    } else {
+        // NV12 を優先的に試す
+        pixel_format = V4L2_PIX_FMT_NV12;
+        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_NV12;
+
+        if (xioctl(fd, VIDIOC_S_FMT, &fmt) < 0 ||
+            fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_NV12) {
+            // YUY2 を試す
+            fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
+            if (xioctl(fd, VIDIOC_S_FMT, &fmt) < 0 ||
+                fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_YUYV) {
+                close(fd);
+                return NULL;
+            }
+            pixel_format = V4L2_PIX_FMT_YUYV;
+        }
     }
 
     // フレームレートを設定

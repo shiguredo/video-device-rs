@@ -18,6 +18,14 @@ impl VideoCapture {
     where
         F: Fn(VideoFrame<'_>) + Send + Sync + 'static,
     {
+        let requested_pixel_format = match config.pixel_format {
+            Some(pixel_format @ PixelFormat::Unknown(_)) => {
+                return Err(Error::UnsupportedPixelFormat(pixel_format));
+            }
+            Some(pixel_format) => pixel_format.to_raw(),
+            None => 0,
+        };
+
         let device_id_cstr = config.device_id.as_ref().map(|s| CString::new(s.as_str()));
         let device_id_ptr = match &device_id_cstr {
             Some(Ok(cstr)) => cstr.as_ptr(),
@@ -26,7 +34,13 @@ impl VideoCapture {
         };
 
         let session = unsafe {
-            ffi::video_session_create(device_id_ptr, config.width, config.height, config.fps)
+            ffi::video_session_create(
+                device_id_ptr,
+                config.width,
+                config.height,
+                config.fps,
+                requested_pixel_format,
+            )
         };
 
         let session = NonNull::new(session).ok_or(Error::SessionCreateFailed)?;

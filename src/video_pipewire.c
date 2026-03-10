@@ -35,6 +35,7 @@ struct VideoSession {
     int requested_width;
     int requested_height;
     int requested_fps;
+    uint32_t requested_format;
     int negotiated_width;
     int negotiated_height;
     uint32_t negotiated_format;
@@ -259,6 +260,19 @@ static uint32_t convert_spa_video_format(uint32_t spa_format) {
     }
 }
 
+static uint32_t convert_video_pixel_format_to_spa(uint32_t pixel_format) {
+    switch (pixel_format) {
+        case VIDEO_PIXEL_FORMAT_NV12:
+            return SPA_VIDEO_FORMAT_NV12;
+        case VIDEO_PIXEL_FORMAT_YUY2:
+            return SPA_VIDEO_FORMAT_YUY2;
+        case VIDEO_PIXEL_FORMAT_I420:
+            return SPA_VIDEO_FORMAT_I420;
+        default:
+            return SPA_VIDEO_FORMAT_UNKNOWN;
+    }
+}
+
 // ストリームの param_changed コールバック
 static void on_param_changed(void* userdata, uint32_t id,
                               const struct spa_pod* param) {
@@ -416,7 +430,8 @@ static const struct pw_core_events session_core_events = {
 };
 
 struct VideoSession* video_session_create(const char* device_id, int width,
-                                          int height, int fps) {
+                                          int height, int fps,
+                                          uint32_t requested_pixel_format) {
     struct VideoSession* session = calloc(1, sizeof(struct VideoSession));
     if (!session) {
         return NULL;
@@ -433,6 +448,15 @@ struct VideoSession* video_session_create(const char* device_id, int width,
     }
     if (fps <= 0) {
         fps = 30;
+    }
+
+    session->requested_format =
+        requested_pixel_format == 0
+            ? SPA_VIDEO_FORMAT_NV12
+            : convert_video_pixel_format_to_spa(requested_pixel_format);
+    if (session->requested_format == SPA_VIDEO_FORMAT_UNKNOWN) {
+        free(session);
+        return NULL;
     }
 
     session->requested_width = width;
@@ -550,13 +574,13 @@ int video_session_start(struct VideoSession* session, FrameCallback callback,
     pw_stream_add_listener(session->stream, &session->stream_listener,
                            &stream_events, session);
 
-    // ビデオフォーマットを設定する (NV12 を要求)
+    // ビデオフォーマットを設定する
     uint8_t params_buffer[1024];
     struct spa_pod_builder builder =
         SPA_POD_BUILDER_INIT(params_buffer, sizeof(params_buffer));
 
     struct spa_video_info_raw video_info = {0};
-    video_info.format = SPA_VIDEO_FORMAT_NV12;
+    video_info.format = session->requested_format;
     video_info.size.width = session->requested_width;
     video_info.size.height = session->requested_height;
     video_info.framerate.num = session->requested_fps;
