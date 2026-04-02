@@ -71,8 +71,10 @@ pub struct VideoCapture {
 }
 
 fn validate_capture_config_for_windows(config: &VideoCaptureConfig) -> Result<()> {
-    // Media Foundation の属性に `as u64` で詰めるため、負や 0 は化けうる（issue 0006）。
-    // PipeWire 等の Linux 経路は C 側で丸めるため、検証は Windows のみ行う。
+    // Media Foundation へ幅・高さ・fps を渡すとき `as u64` で属性に詰めるため、0 以下や負の i32 は
+    // 意図した解像度・フレームレートにならない。先に拒否する。
+    // Linux 向けの `VideoCapture` は `capture.rs` で別実装であり、不正値は C が既定に置き換えるので、
+    // 同じ拒否はこの Windows 専用の経路だけに置く。
     if config.width <= 0 || config.height <= 0 || config.fps <= 0 {
         return Err(Error::InvalidCaptureConfig(
             "width, height, and fps must be positive integers on Windows",

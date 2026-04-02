@@ -126,7 +126,7 @@ fn nv12_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, 
 /// で `calloc` し、`stride_uv` は `(int)strideUV` としてコールバックに渡す。
 /// 本関数の UV は `stride_uv * ((height + 1) / 2) * 2`（usize での切り上げ整合）であり、
 /// 偶数 `height` では `stride_uv * height` と同値、奇数 `height` では C の `uvSize` と一致する。
-/// PipeWire 等の別経路はレイアウトが異なる場合がある（issue 0004）。
+/// Linux PipeWire など他経路の I420 では、連結 UV の実バイト数やストライドの解釈がこの式と一致しない場合がある。
 fn i420_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
     if stride <= 0 || stride_uv <= 0 || height <= 0 {
         return None;
