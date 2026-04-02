@@ -108,6 +108,39 @@ impl Drop for VideoCapture {
 unsafe impl Send for VideoCapture {}
 unsafe impl Sync for VideoCapture {}
 
+/// NV12 の Y / UV プレーンのバイト長を計算する。負のストライドやオーバーフロー時は None。
+fn nv12_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
+    if stride <= 0 || stride_uv <= 0 || height <= 0 {
+        return None;
+    }
+    let h = height as usize;
+    let y = (stride as usize).checked_mul(h)?;
+    let uv_h = h.div_ceil(2);
+    let uv = (stride_uv as usize).checked_mul(uv_h)?;
+    Some((y, uv))
+}
+
+/// I420 の Y / 連結 UV のバイト長を計算する。
+/// macOS `video_c.m` の一時バッファは `uvSize = strideUV * chromaHeight * 2`（`chromaHeight = (height + 1) / 2`）。issue 0004 参照。
+fn i420_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
+    if stride <= 0 || stride_uv <= 0 || height <= 0 {
+        return None;
+    }
+    let h = height as usize;
+    let y = (stride as usize).checked_mul(h)?;
+    let chroma_h = (h + 1) / 2;
+    let uv = (stride_uv as usize).checked_mul(chroma_h)?.checked_mul(2)?;
+    Some((y, uv))
+}
+
+/// YUY2 の 1 フレーム分のバイト長を計算する。
+fn yuy2_packed_frame_bytes(stride: i32, height: i32) -> Option<usize> {
+    if stride <= 0 || height <= 0 {
+        return None;
+    }
+    (stride as usize).checked_mul(height as usize)
+}
+
 extern "C" fn frame_callback(
     user_data: *mut std::ffi::c_void,
     data: *const u8,
@@ -137,8 +170,9 @@ extern "C" fn frame_callback(
             if uv_data.is_null() {
                 return;
             }
-            let y_size = (stride as usize) * (height as usize);
-            let uv_size = (stride_uv as usize) * (height as usize).div_ceil(2);
+            let Some((y_size, uv_size)) = nv12_plane_sizes(stride, stride_uv, height) else {
+                return;
+            };
 
             let y_slice = unsafe { std::slice::from_raw_parts(data, y_size) };
             let uv_slice = unsafe { std::slice::from_raw_parts(uv_data, uv_size) };
@@ -159,9 +193,9 @@ extern "C" fn frame_callback(
             if uv_data.is_null() {
                 return;
             }
-            let y_size = (stride as usize) * (height as usize);
-            // I420: U プレーン (stride_uv * height/2) + V プレーン (stride_uv * height/2)
-            let uv_size = (stride_uv as usize) * (height as usize);
+            let Some((y_size, uv_size)) = i420_plane_sizes(stride, stride_uv, height) else {
+                return;
+            };
 
             let y_slice = unsafe { std::slice::from_raw_parts(data, y_size) };
             let uv_slice = unsafe { std::slice::from_raw_parts(uv_data, uv_size) };
@@ -179,7 +213,9 @@ extern "C" fn frame_callback(
             }
         }
         PixelFormat::Yuy2 => {
-            let data_size = (stride as usize) * (height as usize);
+            let Some(data_size) = yuy2_packed_frame_bytes(stride, height) else {
+                return;
+            };
             let data_slice = unsafe { std::slice::from_raw_parts(data, data_size) };
 
             VideoFrame {
