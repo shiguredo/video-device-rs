@@ -49,5 +49,17 @@ Model: Composer 2 Fast
 
 ## 問題解決
 
-- **案 A** を採用。`validate_capture_config_for_windows` を `VideoCapture::new` の**先頭**（`MFStartup` より前）に置き、`width` / `height` / `fps` が正の整数でない場合は `InvalidCaptureConfig` で拒否し、**`as u64` で MF に化けた値が渡らない**ようにした。PipeWire 経路は Rust 側で拒否しない（本文どおり）。
-- `Error::InvalidCaptureConfig` と `VideoCaptureConfig` の doc で、Windows と Linux の前提の差を明示した。
+### 問題だったこと
+
+- Windows で `width` / `height` / `fps` が 0 以下や負のとき、`try_set_format` 等で `as u64` により **MF 属性に意図しないビット列**が入りうる（未定義動作のリスク）。
+- Linux（PipeWire）は C が不正値を既定に丸めるため、**Rust で一律拒否すると互換を壊す**。
+
+### どう解決したか
+
+- **案 A** を採用。`#[cfg(windows)]` のみ有効な `validate_capture_config_for_windows` を **`VideoCapture::new` の先頭**で呼び、`width` / `height` / `fps` がいずれも正の整数でなければ `Error::InvalidCaptureConfig`（メッセージ英語）で `Err` にした。これにより **`MFStartup` より前**に弾き、不正値が Media Foundation に渡らないようにした。
+- `src/error.rs` に `InvalidCaptureConfig` を追加した。
+- `VideoCaptureConfig` の doc に、Windows は正の整数必須・Linux は C 側の丸めに任せる旨を日本語で書いた。
+
+### issue 本文との差異
+
+- 本文は「`VideoCapture::new`（または **`try_set_format` 手前**）」とある。実装は **`try_set_format` を呼ぶ `create_source_reader` より前**の `new` 先頭で検証している（より手前で拒否する形）。**V4L2 単体ビルドで `video_session_create` の前に同様の検証を入れるか**は未着手（本文どおり別判断）。

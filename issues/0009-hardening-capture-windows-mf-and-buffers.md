@@ -77,6 +77,23 @@ Model: Composer 2 Fast
 
 ## 問題解決
 
-- **`MFStartup` 成功後の失敗で `MFShutdown` されない問題**: `MfShutdownGuard` で構築成功までのエラー経路だけ `MFShutdown` するようにした。
-- **`activate_device` の列挙配列リーク**: `CoTaskMemActivateArrayGuard` で全 `Err` 経路を含め解放した。
-- **`process_sample` の境界**: null データポインタ・非正の幅・高さ・バッファ不足を拒否し、NV12/I420 は Y+UV 総量（Y + Y/2）、YUY2 は `stride * height` 分だけ `&data[..required]` に限定した。必要バイト数は **`nv12_packed_frame_bytes` / `i420_packed_frame_bytes` / `yuy2_packed_frame_bytes_win`** に切り出して同じ判定を維持した。
+### 問題だったこと
+
+1. **`MFStartup` 成功後に `Err` で return** すると、`VideoCapture` が構築されず **`Drop` の `MFShutdown` も走らない**ため、MF の参照カウントが残りうる。
+2. **`activate_device`**: `MFEnumDeviceSources` が成功したあと、`DeviceNotFound` や `ActivateObject` 失敗で抜けると **`CoTaskMemFree` が呼ばれず**列挙配列がリークする（成功時だけ手動 `CoTaskMemFree` していた）。
+3. **`process_sample`**: `Lock` 後に null データ・非正の幅・高さ・**バッファ長不足**・YUY2 で **バッファ全体**を `VideoFrame.data` に渡すと、`from_raw_parts` やスライスが**境界外**になりうる。
+
+### どう解決したか
+
+1. `MFStartup` 直後に `MfShutdownGuard` を置き、**`VideoCapture` 構築が成功したときだけ** `active = false` にして `Drop` で `MFShutdown` しない。それ以外の `?` 経路ではガードの `Drop` で `MFShutdown` する。
+2. 列挙ポインタ取得後すぐ `CoTaskMemActivateArrayGuard` を束縛し、**成功・失敗を問わず** `CoTaskMemFree` する（手動 `CoTaskMemFree` は削除）。
+3. `data_ptr.is_null()`、`width` / `height` 非正を拒否。NV12/I420 は **Y+UV 相当の必要バイト数**（Y + Y/2）を `required` とし `data.len() < required` なら return。YUY2 は `stride * height` を `required` とし **`&data[..required]`** のみ渡す。null/不足時は `Unlock` してから return。
+
+### issue 本文との差異
+
+| 項目 | issue 本文 | 実際の解決 |
+|------|------------|------------|
+| `process_sample` の `required` 計算 | 本文は `process_sample` **内**で直接計算する想定の記述 | 同じ式だが **`nv12_packed_frame_bytes` / `i420_packed_frame_bytes` / `yuy2_packed_frame_bytes_win`** に**関数として切り出し**、可読性と重複回避にした |
+| MF / CoTaskMem | `MfShutdownGuard`・`CoTaskMemActivateArrayGuard` の導入 | **本文どおり** |
+
+**0003**（`device_windows.rs` の列挙）とは別ファイルだが、`CoTaskMemActivateArrayGuard` のパターンは同型である。

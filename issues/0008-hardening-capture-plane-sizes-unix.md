@@ -69,5 +69,21 @@ Model: Composer 2 Fast
 
 ## 問題解決
 
-- **負のストライド・乗算オーバーフロー**: `nv12_plane_sizes` / `i420_plane_sizes` / `yuy2_packed_frame_bytes` で `checked_mul` と非正の拒否を行い、`frame_callback` から危険な `from_raw_parts` を呼ばないようにした（本文の NV12・YUY2 の仕様どおり）。
-- **I420 の UV 長と macOS C の不一致（奇数高さ）**: 草案では `stride_uv * height` としていたが、**0004** の突き合わせの結果、C の `uvSize = strideUV * chromaHeight * 2` と一致する **`stride_uv * ((height + 1) / 2) * 2`**（usize・`checked_mul`）に変更した。これにより `from_raw_parts(uv_data, uv_size)` の長さが macOS の連結 UV バッファと整合し、UB を避けられる。
+### 問題だったこと
+
+1. **負のストライド・オーバーフロー**: `stride` や `stride_uv` が負のとき `as usize` の乗算が巨大になり、`from_raw_parts` が危険な長さになりうる。YUY2 は `stride <= 0` の早期 return がなかった。
+2. **I420 の UV バイト数**: 本 issue の「非公開ヘルパ（仕様）」では UV を **`stride_uv * height`** とする草案だったが、**0004** で macOS C と突き合わせると奇数 `height` で **C の `uvSize` と一致しない**。
+
+### どう解決したか
+
+1. `nv12_plane_sizes` / `i420_plane_sizes` / `yuy2_packed_frame_bytes` を追加し、非正のストライド・高さは `None`、`checked_mul` で乗算。`frame_callback` は `None` のとき return し、**不自然な長さで `from_raw_parts` しない**。
+2. I420 の UV は **0004 と同じ式**にした: `chroma_h = (height + 1) / 2`（usize）、`uv = stride_uv * chroma_h * 2`（各段 `checked_mul`）。NV12・YUY2 は本文の「非公開ヘルパ（仕様）」どおり。
+
+### issue 本文との差異
+
+| 項目 | issue 本文 | 実際の解決 |
+|------|------------|------------|
+| I420 の UV 長 | 草案: `stride_uv * height`（`checked_mul`） | **0004** に合わせ `stride_uv * ((height + 1) / 2) * 2` に変更（macOS `uvSize` と一致） |
+| その他 | NV12 / YUY2 のヘルパ仕様 | **本文どおり** |
+
+0004 との役割分担: **0008** は Rust 側のガード、**0004** は C との式の根拠とコメント（`video_c.m` / `video_v4l2.c` / `capture.rs` doc）。

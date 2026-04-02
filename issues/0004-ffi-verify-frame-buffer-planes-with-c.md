@@ -27,7 +27,7 @@ Model: Composer 2 Fast
 - 連結 UV バッファ `uvBuffer` のサイズ: `uvSize = strideUV * chromaHeight * 2`
 - コールバックに渡す `stride_uv` は `(int)strideUV`、`height` はフレーム高さ。
 
-Rust `i420_plane_sizes` は Y を `stride * height`、UV（連結 U+V）を **`stride_uv * chromaHeight * 2`**（`chromaHeight = (height + 1) / 2`、usize 上の切り捨て整合）とし、C の `uvSize` と一致させる。**当初メモにあった「UV を `stride_uv * height` とする」案は、奇数高さで C と不一致になるため不採用**（**0008** の問題解決でも触れた）。
+Rust 側の目標は、macOS の `from_raw_parts(uv_data, uv_size)` に渡す `uv_size` が C が `calloc` した `uvSize` と**同じバイト数**になることである（下記「問題解決」）。
 
 **検証タスク**:
 
@@ -38,6 +38,22 @@ Rust `i420_plane_sizes` は Y を `stride * height`、UV（連結 U+V）を **`s
 ### V4L2（参考・本 issue の必須成果ではない）
 
 - 現状の C は上記のとおり `width` ベース。境界保証を強める変更は**別 issue** または本 issue の拡張として切り出す。
+
+## 問題解決
+
+### 問題だったこと
+
+1. **macOS I420**: Rust が `uv_data` に使うバイト長が、C の `video_c.m` で確保している `uvSize = strideUV * chromaHeight * 2` と式レベルで一致しているか未整理だった。特に奇数 `height` では「`stride_uv * height` で足りる」という誤りがありうる。
+2. **V4L2 NV12**: `bytesperline` を stride に使わず `session->width` を渡しているため、Rust の下限防御と実バッファ境界が必ずしも一致しないリスクを、コメントで明示する必要があった（本 issue のスコープは「数学的に C と Rust を一致させた」とは書かない）。
+
+### どう解決したか
+
+1. **macOS**: `src/video_c.m` の `uvSize` 算出直後に、Rust `i420_plane_sizes` の UV 式と一致することを日本語コメントで記載した。`src/capture.rs` の `i420_plane_sizes` に、C の `chromaHeight` と同じ `((height + 1) / 2)` を使った **`stride_uv * chroma_h * 2`（`checked_mul`）** と doc を書いた。Y は `stride * height` のまま。
+2. **V4L2**: `src/video_v4l2.c` の NV12 コールバック付近に、`bytesperline` と `session->width` の乖離しうる旨の日本語コメントを追加した（C の stride 渡しは変更していない）。
+
+### issue 本文・関連 issue との差異
+
+- **0008** の issue 草案では I420 の UV を `stride_uv * height` としていたが、上記の macOS 突き合わせの結果、**0008 の実装は 0004 と同じ式に統一した**（詳細は **0008** の「問題解決」を参照）。
 
 ## 完了条件（チェックリスト）
 

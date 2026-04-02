@@ -36,5 +36,16 @@ Model: Composer 2 Fast
 
 ## 問題解決
 
-- **非 macOS で非 NULL の `pixel_buffer` を保持するとリークする問題**: 方針 B とし、`from_retained_ptr` は macOS 以外では非 NULL でも `None` を返し、参照を保持しないようにした。
-- **契約の明示**: 方針 A に相当する doc を `PixelBuffer`、`VideoFrame` / `VideoFrameOwned`、`video_c.h` に追記し、未対応プラットフォームでは NULL のみとした。
+### 問題だったこと
+
+- macOS 以外では `PixelBuffer::Drop` が `CFRelease` しないため、**`from_retained_ptr` が非 NULL を `Some` で保持すると参照が解放されずリーク**しうる。一方 `video_c.h` では未対応プラットフォームは `pixel_buffer` を NULL とする契約である。
+
+### どう解決したか
+
+- **方針 B**: `cfg(not(target_os = "macos"))` では、ポインタが非 NULL でも **`None` を返し**オペーク参照を保持しない（リークしない）。
+- **方針 A に相当する文書化**: `PixelBuffer`、`VideoFrame` / `VideoFrameOwned` の `pixel_buffer`、`video_c.h` の `pixel_buffer` 説明を、macOS 以外では NULL のみ・非 NULL は未サポートと明記した。
+
+### issue 本文との差異
+
+- **方針 C**（V4L2/PipeWire の C 側で NULL を再確認するコメントのみ、Rust は A のみ）は**採用していない**。B と A を併用した。
+- 方針 B の代替として書かれていた「`debug_assert!` やログのみ」は使わず、**非 NULL は保持しない**実装にした。
