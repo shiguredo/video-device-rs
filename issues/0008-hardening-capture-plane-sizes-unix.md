@@ -37,7 +37,7 @@ Model: Composer 2 Fast
 
 - 上記と同様にストライド・高さの非正を弾く。
 - Y: `(stride as usize).checked_mul(height as usize)?`
-- UV（連結 U+V）: `(stride_uv as usize).checked_mul(height as usize)?`（現行 163〜164 行の意図と同じだが `checked_mul`）
+- UV（連結 U+V）: issue 作成時の草案は `stride_uv * height`（`checked_mul`）だったが、**実装では下記「実装記録」のとおり 0004（macOS C）に合わせた式に変更した。**
 
 ### `yuy2_packed_frame_bytes(stride, height) -> Option<usize>`
 
@@ -66,3 +66,16 @@ Model: Composer 2 Fast
 
 - **調査**: 現行実装は `stride` 負値と乗算オーバーフローに弱い。ヘルパで `checked_mul` と非正ストライドの拒否を一本化すれば、`frame_callback` の分岐は読みやすい。
 - **本 issue だけで修正可能**: はい。`src/capture.rs` のみ変更すればよい（`lib.rs` のモジュール構成は変えない）。
+
+## 実装記録（本文「非公開ヘルパ（仕様）」からの差異）
+
+本 issue の**当初草案**では I420 の UV バイト数を「現行 Rust に近い」**`stride_uv * height`（`checked_mul`）**としていた。
+
+**実装時**は関連 issue **0004**（macOS `video_c.m` の `uvSize = strideUV * chromaHeight * 2`）との**式一致**を優先し、I420 の UV は
+
+- `chroma_h = (height as usize + 1) / 2`
+- `uv = stride_uv * chroma_h * 2`（いずれも `checked_mul` で組み立て）
+
+とした。偶数 `height` では `stride_uv * height` と同値になるが、奇数 `height` では**草案の `stride_uv * height` とは一致しない**。
+
+**NV12** および **YUY2** のヘルパ仕様は本文どおり実装した。I420 だけ 0004 を優先した理由は、`from_raw_parts(uv_data, uv_size)` の長さが macOS の連結 UV 割り当てと**一致しないと UB**になりうるため。

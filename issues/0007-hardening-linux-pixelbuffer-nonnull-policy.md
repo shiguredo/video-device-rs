@@ -33,3 +33,8 @@ Model: Composer 2 Fast
 ## 参考
 
 - `src/capture.rs` の `frame_callback` が `PixelBuffer::from_retained_ptr(pixel_buffer)` を呼ぶ箇所。
+
+## 実装記録
+
+- **方針 B**（非 macOS では `from_retained_ptr` が非 NULL でも `None` を返し、参照を保持しない）を実装した。
+- あわせて **方針 A** に相当する doc を `PixelBuffer`、`VideoFrame` / `VideoFrameOwned` の `pixel_buffer`、`video_c.h` の `pixel_buffer` 説明に追記した（契約の明示）。

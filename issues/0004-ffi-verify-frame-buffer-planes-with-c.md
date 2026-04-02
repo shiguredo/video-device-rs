@@ -27,7 +27,7 @@ Model: Composer 2 Fast
 - 連結 UV バッファ `uvBuffer` のサイズ: `uvSize = strideUV * chromaHeight * 2`
 - コールバックに渡す `stride_uv` は `(int)strideUV`、`height` はフレーム高さ。
 
-Rust `i420_plane_sizes` は Y を `stride * height`、UV を `stride_uv * height`（フル高さ乗算）。
+Rust `i420_plane_sizes` は Y を `stride * height`、UV（連結 U+V）を **`stride_uv * chromaHeight * 2`**（`chromaHeight = (height + 1) / 2`、usize 上の切り捨て整合）とし、C の `uvSize` と一致させる。**当初メモにあった「UV を `stride_uv * height` とする」案は、奇数高さで C と不一致になるため不採用**（採用結果は **0008** の実装記録にも書いた）。
 
 **検証タスク**:
 

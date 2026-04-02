@@ -46,3 +46,9 @@ Model: Composer 2 Fast
 ## 検討結果
 
 - **採用**: レビュー指摘どおり、タイトル・目的に `fps` があるのに完了条件に無かった**曖昧さを解消**した。`try_set_format` 内の `MF_MT_FRAME_RATE` への `fps as u64` を現状に明記し、完了条件に **Windows での `fps` の扱い**（幅・高さと同じ検証ブロック、または doc と実装の両立）を追加した。
+
+## 実装記録
+
+- **案 A** を採用。検証は `src/capture_windows.rs` 内の非公開関数 `validate_capture_config_for_windows` とし、`VideoCapture::new` の**先頭**（`MFStartup` より前）で `width` / `height` / `fps` を一括チェックした。issue 本文の「`try_set_format` 手前」より**前**で拒否することで、不正値が MF に渡らないようにした。
+- `src/error.rs` に `Error::InvalidCaptureConfig(&'static str)` を追加（本文のエラー型の例と同型）。
+- `src/types.rs` の `VideoCaptureConfig` に、Windows と Linux（PipeWire の丸め）の差を日本語 doc で記載した。
