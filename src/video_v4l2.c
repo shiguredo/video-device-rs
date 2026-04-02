@@ -342,6 +342,19 @@ const struct VideoFormatEntry* video_device_get_format(struct VideoDevice* devic
     return &device->formats[index];
 }
 
+static void cleanup_mmap(struct VideoSession* session) {
+    if (session->buffers) {
+        for (unsigned int i = 0; i < session->buffer_count; i++) {
+            if (session->buffers[i].start && session->buffers[i].start != MAP_FAILED) {
+                munmap(session->buffers[i].start, session->buffers[i].length);
+            }
+        }
+        free(session->buffers);
+        session->buffers = NULL;
+        session->buffer_count = 0;
+    }
+}
+
 static int init_mmap(struct VideoSession* session) {
     struct v4l2_requestbuffers req;
     memset(&req, 0, sizeof(req));
@@ -390,19 +403,6 @@ fail:
     // 部分失敗時: 既に mmap した領域と buffers 配列を解放する
     cleanup_mmap(session);
     return -1;
-}
-
-static void cleanup_mmap(struct VideoSession* session) {
-    if (session->buffers) {
-        for (unsigned int i = 0; i < session->buffer_count; i++) {
-            if (session->buffers[i].start && session->buffers[i].start != MAP_FAILED) {
-                munmap(session->buffers[i].start, session->buffers[i].length);
-            }
-        }
-        free(session->buffers);
-        session->buffers = NULL;
-        session->buffer_count = 0;
-    }
 }
 
 struct VideoSession* video_session_create(const char* device_id, int width,
