@@ -32,12 +32,19 @@ impl VideoDevice {
     }
 
     /// 対応フォーマット数を取得
+    ///
+    /// C 側が報告するエントリ数（インデックスの上限）である。
+    /// [`Self::formats`] は `NULL` で取得できなかったインデックスをスキップするため、
+    /// 返すベクタの要素数がこれより少ない場合がある。
     pub fn format_count(&self) -> usize {
         let count = unsafe { ffi::video_device_format_count(self.raw.as_ptr()) };
         count.max(0) as usize
     }
 
     /// 対応フォーマット一覧を取得
+    ///
+    /// 実際に取得できたフォーマットのリストである。
+    /// [`Self::format_count`](Self::format_count) の値と一致しない場合がある（上記のスキップのため）。
     pub fn formats(&self) -> Vec<VideoFormat> {
         let count = self.format_count();
         let mut formats = Vec::with_capacity(count);
