@@ -156,6 +156,9 @@ pub struct VideoFormat {
 }
 
 /// キャプチャ設定
+///
+/// **Windows** では `width` / `height` / `fps` はいずれも正の整数である必要がある（Media Foundation への渡し方のため）。
+/// **Linux（PipeWire 等）** では不正値を C 側が既定解像度・フレームレートに置き換える場合があるため、Rust 側では拒否しない。
 pub struct VideoCaptureConfig {
     /// デバイス ID (None の場合はデフォルトデバイス)
     pub device_id: Option<String>,

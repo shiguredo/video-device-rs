@@ -34,11 +34,24 @@ pub struct VideoCapture {
     config: VideoCaptureConfig,
 }
 
+fn validate_capture_config_for_windows(config: &VideoCaptureConfig) -> Result<()> {
+    // Media Foundation の属性に `as u64` で詰めるため、負や 0 は化けうる（issue 0006）。
+    // PipeWire 等の Linux 経路は C 側で丸めるため、検証は Windows のみ行う。
+    if config.width <= 0 || config.height <= 0 || config.fps <= 0 {
+        return Err(Error::InvalidCaptureConfig(
+            "width, height, and fps must be positive integers on Windows",
+        ));
+    }
+    Ok(())
+}
+
 impl VideoCapture {
     pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + Sync + 'static,
     {
+        validate_capture_config_for_windows(&config)?;
+
         unsafe {
             // COM 初期化 (既に初期化済みの場合も許容する)
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
