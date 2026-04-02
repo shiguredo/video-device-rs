@@ -2,6 +2,12 @@
 //!
 //! このクレートは macOS (AVFoundation)、Linux (V4L2)、Windows (Media Foundation) をサポートしています。
 //! 現在は映像キャプチャ（カメラ入力）の機能を提供しています。
+//!
+//! ## フレームコールバック
+//!
+//! [`VideoCapture::new`](VideoCapture::new) に渡すコールバックは、C から呼ばれる経路を跨ぐため**パニックしてはならない**。
+//! 渡される [`VideoFrame`] のスライスが指すメモリは、**そのコールバックの実行中にのみ**有効である。
+//! コールバック終了後にデータを保持したい場合は [`VideoFrame::to_owned`] で [`VideoFrameOwned`] にコピーする。
 
 mod error;
 mod types;

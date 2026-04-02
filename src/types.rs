@@ -181,7 +181,9 @@ impl Default for VideoCaptureConfig {
     }
 }
 
-/// キャプチャされたビデオフレームの生データ
+/// キャプチャされたビデオフレームの生データ（借用）。
+///
+/// `data` および `uv_data` が指すメモリの寿命は、ユーザに渡したコールバックの呼び出し中に限る。
 pub struct VideoFrame<'a> {
     /// Y プレーンまたはインターリーブデータ
     pub data: &'a [u8],
@@ -220,7 +222,9 @@ impl<'a> VideoFrame<'a> {
     }
 }
 
-/// キャプチャされたビデオフレームの所有データ
+/// キャプチャされたビデオフレームの所有データ。
+///
+/// コールバック終了後も保持でき、別スレッドへ渡すなど寿命を延ばす用途はこちらを使う（[`VideoFrame::to_owned`]）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoFrameOwned {
     /// Y プレーンまたはインターリーブデータ

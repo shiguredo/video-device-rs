@@ -29,6 +29,10 @@ struct VideoFormatEntry {
 // YUY2 の場合: data はパックドデータ、uv_data は NULL
 // I420 の場合: data は Y プレーン、uv_data は U プレーン + V プレーンを連結したデータ
 // pixel_buffer: macOS の CVPixelBuffer。未対応プラットフォームでは NULL
+//
+// The callback must not unwind (panic across this FFI boundary). Pointers data and uv_data are
+// valid only until the callback returns; do not retain slices for async use afterward. Copy the
+// payload or use a higher-level to_owned() if the frame must outlive the call.
 typedef void (*FrameCallback)(void* user_data,
                                const uint8_t* data,
                                const uint8_t* uv_data,
