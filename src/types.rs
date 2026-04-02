@@ -17,6 +17,9 @@ pub(crate) const VIDEO_PIXEL_FORMAT_YUY2: u32 = 0x32595559;
 pub(crate) const VIDEO_PIXEL_FORMAT_I420: u32 = 0x30323449;
 
 /// ピクセルフォーマット
+///
+/// **Windows** では `to_raw` / `from_raw` はビルド対象に含まれない（`cfg` により定義されない）。
+/// 列挙・キャプチャは Media Foundation の `GUID` と内部で対応付けている。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PixelFormat {
     /// NV12 (YUV 4:2:0 semi-planar)
