@@ -372,7 +372,7 @@ static int init_mmap(struct VideoSession* session) {
         buf.index = i;
 
         if (xioctl(session->fd, VIDIOC_QUERYBUF, &buf) < 0) {
-            return -1;
+            goto fail;
         }
 
         session->buffers[i].length = buf.length;
@@ -380,11 +380,16 @@ static int init_mmap(struct VideoSession* session) {
             mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, session->fd, buf.m.offset);
 
         if (session->buffers[i].start == MAP_FAILED) {
-            return -1;
+            goto fail;
         }
     }
 
     return 0;
+
+fail:
+    // 部分失敗時: 既に mmap した領域と buffers 配列を解放する
+    cleanup_mmap(session);
+    return -1;
 }
 
 static void cleanup_mmap(struct VideoSession* session) {
@@ -396,6 +401,7 @@ static void cleanup_mmap(struct VideoSession* session) {
         }
         free(session->buffers);
         session->buffers = NULL;
+        session->buffer_count = 0;
     }
 }
 
@@ -553,6 +559,8 @@ static void* capture_thread(void* arg) {
 
             if (session->pixel_format == V4L2_PIX_FMT_NV12) {
                 // NV12: Y プレーンと UV プレーンが連続
+                // 注意: ドライバが bytesperline > width のパディングを返す場合、実ストライドと
+                // session->width を stride に渡す現在の実装は乖離しうる（境界はドライバ mmap 長に依存）。
                 int y_size = session->width * session->height;
                 const uint8_t* uv_data = data + y_size;
 

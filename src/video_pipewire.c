@@ -1,6 +1,7 @@
 // PipeWire を使った Linux 用ビデオキャプチャ実装
 
 #include <stdatomic.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -273,6 +274,86 @@ static uint32_t convert_video_pixel_format_to_spa(uint32_t pixel_format) {
     }
 }
 
+// uint64_t の乗算でオーバーフローしないか確認する
+static int mul_u64_ov(uint64_t a, uint64_t b, uint64_t* out) {
+    if (a != 0 && b > UINT64_MAX / a) {
+        return 0;
+    }
+    *out = a * b;
+    return 1;
+}
+
+// uint64_t の加算でオーバーフローしないか確認する
+static int add_u64_ov(uint64_t a, uint64_t b, uint64_t* out) {
+    if (a > UINT64_MAX - b) {
+        return 0;
+    }
+    *out = a + b;
+    return 1;
+}
+
+// NV12: Rust `nv12_plane_sizes`（capture.rs）と同じ Y/UV バイト数
+static int required_bytes_nv12(int32_t stride, int32_t stride_uv, int height, uint64_t* out) {
+    if (stride <= 0 || stride_uv <= 0 || height <= 0) {
+        return 0;
+    }
+    uint64_t y_bytes;
+    if (!mul_u64_ov((uint64_t)stride, (uint64_t)height, &y_bytes)) {
+        return 0;
+    }
+    // UV 行数は `height.div_ceil(2)` と同じ（奇数高さで `height/2` より 1 行多い）
+    uint64_t uv_h = ((uint64_t)height + 1u) / 2u;
+    uint64_t uv_bytes;
+    if (!mul_u64_ov((uint64_t)stride_uv, uv_h, &uv_bytes)) {
+        return 0;
+    }
+    return add_u64_ov(y_bytes, uv_bytes, out);
+}
+
+// I420: Rust `i420_plane_sizes`（capture.rs）と同じ Y/連結 UV バイト数
+static int required_bytes_i420(int32_t stride, int32_t stride_uv, int height, uint64_t* out) {
+    if (stride <= 0 || stride_uv <= 0 || height <= 0) {
+        return 0;
+    }
+    uint64_t y_bytes;
+    if (!mul_u64_ov((uint64_t)stride, (uint64_t)height, &y_bytes)) {
+        return 0;
+    }
+    uint64_t chroma_h = ((uint64_t)height + 1u) / 2u;
+    uint64_t uv_part;
+    if (!mul_u64_ov((uint64_t)stride_uv, chroma_h, &uv_part)) {
+        return 0;
+    }
+    uint64_t uv_bytes;
+    if (!mul_u64_ov(uv_part, 2u, &uv_bytes)) {
+        return 0;
+    }
+    return add_u64_ov(y_bytes, uv_bytes, out);
+}
+
+// YUY2: 最終行の末尾まで含めた必要バイト数（stride >= width*2 を満たさない場合は不正とみなす）
+static int required_bytes_yuy2(int32_t stride, int width, int height, uint64_t* out) {
+    if (stride <= 0 || width <= 0 || height <= 0) {
+        return 0;
+    }
+    uint64_t w2;
+    if (!mul_u64_ov((uint64_t)width, 2u, &w2)) {
+        return 0;
+    }
+    if ((uint64_t)stride < w2) {
+        return 0;
+    }
+    uint64_t s = (uint64_t)stride;
+    uint64_t h = (uint64_t)height;
+    uint64_t rows = 0;
+    if (h > 1u) {
+        if (!mul_u64_ov(s, h - 1u, &rows)) {
+            return 0;
+        }
+    }
+    return add_u64_ov(rows, w2, out);
+}
+
 // ストリームの param_changed コールバック
 static void on_param_changed(void* userdata, uint32_t id,
                               const struct spa_pod* param) {
@@ -325,8 +406,23 @@ static void on_process(void* userdata) {
         return;
     }
 
+    // chunk が NULL のとき stride を参照すると未定義動作になる
+    if (!spa_buf->datas[0].chunk) {
+        pw_stream_queue_buffer(session->stream, buf);
+        return;
+    }
+
+    const struct spa_chunk* chunk = spa_buf->datas[0].chunk;
+    int32_t stride = chunk->stride;
+    // 以降の y_size 計算で負や 0 の stride は使わない
+    if (stride <= 0) {
+        pw_stream_queue_buffer(session->stream, buf);
+        return;
+    }
+
     const uint8_t* data = spa_buf->datas[0].data;
-    int stride = spa_buf->datas[0].chunk->stride;
+    // spa_chunk は data 上で [offset, offset+size) が有効領域（SPA のバッファ契約）
+    const uint8_t* plane = data + chunk->offset;
 
     // タイムスタンプを取得する
     int64_t timestamp_us;
@@ -347,27 +443,60 @@ static void on_process(void* userdata) {
         int width = session->negotiated_width;
         int height = session->negotiated_height;
 
+        if (width <= 0 || height <= 0) {
+            pw_stream_queue_buffer(session->stream, buf);
+            return;
+        }
+
+        uint64_t need = 0;
+        if (format == VIDEO_PIXEL_FORMAT_NV12) {
+            if (!required_bytes_nv12(stride, stride, height, &need)) {
+                pw_stream_queue_buffer(session->stream, buf);
+                return;
+            }
+        } else if (format == VIDEO_PIXEL_FORMAT_I420) {
+            int stride_uv = stride / 2;
+            if (!required_bytes_i420(stride, stride_uv, height, &need)) {
+                pw_stream_queue_buffer(session->stream, buf);
+                return;
+            }
+        } else if (format == VIDEO_PIXEL_FORMAT_YUY2) {
+            if (!required_bytes_yuy2(stride, width, height, &need)) {
+                pw_stream_queue_buffer(session->stream, buf);
+                return;
+            }
+        } else {
+            pw_stream_queue_buffer(session->stream, buf);
+            return;
+        }
+
+        // 壊れたメタデータで plane から need バイト読むと chunk の有効範囲を超える場合はコールバックしない
+        if (chunk->size == 0 || need > (uint64_t)chunk->size) {
+            pw_stream_queue_buffer(session->stream, buf);
+            return;
+        }
+
         if (format == VIDEO_PIXEL_FORMAT_NV12) {
             // NV12: Y プレーンと UV プレーンが連続
-            int y_size = stride * height;
-            const uint8_t* uv_data = data + y_size;
+            uint64_t y_bytes = (uint64_t)stride * (uint64_t)height;
+            const uint8_t* uv_data = plane + y_bytes;
             int stride_uv = stride;
 
-            session->callback(session->user_data, data, uv_data, width,
+            session->callback(session->user_data, plane, uv_data, width,
                               height, stride, stride_uv,
                               VIDEO_PIXEL_FORMAT_NV12, timestamp_us, NULL);
         } else if (format == VIDEO_PIXEL_FORMAT_YUY2) {
             // YUY2: パックドフォーマット
-            session->callback(session->user_data, data, NULL, width,
+            session->callback(session->user_data, plane, NULL, width,
                               height, stride, 0,
                               VIDEO_PIXEL_FORMAT_YUY2, timestamp_us, NULL);
         } else if (format == VIDEO_PIXEL_FORMAT_I420) {
             // I420: Y, U, V が連続
-            int y_size = stride * height;
-            const uint8_t* uv_data = data + y_size;
+            uint64_t y_bytes = (uint64_t)stride * (uint64_t)height;
+            const uint8_t* uv_data = plane + y_bytes;
             int stride_uv = stride / 2;
 
-            session->callback(session->user_data, data, uv_data, width,
+            session->callback(session->user_data, plane, uv_data, width,
                               height, stride, stride_uv,
                               VIDEO_PIXEL_FORMAT_I420, timestamp_us, NULL);
         }

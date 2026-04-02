@@ -28,7 +28,11 @@ struct VideoFormatEntry {
 // NV12 の場合: data は Y プレーン、uv_data は UV インターリーブプレーン
 // YUY2 の場合: data はパックドデータ、uv_data は NULL
 // I420 の場合: data は Y プレーン、uv_data は U プレーン + V プレーンを連結したデータ
-// pixel_buffer: macOS の CVPixelBuffer。未対応プラットフォームでは NULL
+// pixel_buffer: macOS の CVPixelBuffer (retained)。その他のプラットフォームでは必ず NULL（非 NULL は未サポート）
+//
+// コールバックはこの FFI 境界を跨いでアンワインド（パニック）してはならない。
+// data および uv_data が指すバッファは、コールバックが返るまで有効である。非同期にスライスだけを保持して後から読んではならない。
+// フレームをコールバック後も使う必要がある場合はコピーするか、上位 API の to_owned() を使うこと。
 typedef void (*FrameCallback)(void* user_data,
                                const uint8_t* data,
                                const uint8_t* uv_data,

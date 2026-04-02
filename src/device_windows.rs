@@ -7,6 +7,21 @@ use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUI
 use crate::error::{Error, Result};
 use crate::types::{PixelFormat, VideoFormat};
 
+/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
+struct CoTaskMemActivateArrayGuard {
+    ptr: *mut Option<IMFActivate>,
+}
+
+impl Drop for CoTaskMemActivateArrayGuard {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                CoTaskMemFree(Some(self.ptr as *const _));
+            }
+        }
+    }
+}
+
 /// ビデオデバイス
 pub struct VideoDevice {
     name: String,
@@ -157,6 +172,8 @@ fn get_device_formats(activate: &IMFActivate) -> Vec<VideoFormat> {
             index += 1;
         }
 
+        // ソースリーダーを先にスコープ外へ（明示的に解放）してからソースを Shutdown する（読み手が順序を追いやすくする）
+        drop(reader);
         let _ = source.Shutdown();
     }
 
@@ -166,15 +183,15 @@ fn get_device_formats(activate: &IMFActivate) -> Vec<VideoFormat> {
 /// デバイスを列挙
 fn enumerate_devices_internal() -> Result<Vec<VideoDevice>> {
     unsafe {
-        // COM 初期化 (既に初期化済みの場合も許容する)
+        // 列挙用にこのスレッドで COM を初期化する。対称の CoUninitialize は呼ばない（スレッドの参照カウントとアプリ方針に合わせる）。
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
 
-        // Media Foundation 初期化
+        // MFStartup が失敗した場合は参照カウントを増やしていないため MFShutdown は呼ばない（MSDN の初期化契約に従う）。
         MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::DeviceAccessDenied)?;
 
         let result = enumerate_devices_impl();
 
-        // Media Foundation 終了 (MFStartup と対にする)
+        // この関数内で成功した MFStartup と対になる MFShutdown
         let _ = MFShutdown();
 
         result
@@ -206,6 +223,8 @@ unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
         let mut devices = Vec::new();
 
         if count > 0 && !devices_ptr.is_null() {
+            let _devices_guard = CoTaskMemActivateArrayGuard { ptr: devices_ptr };
+
             let device_slice = std::slice::from_raw_parts(devices_ptr, count as usize);
 
             for activate in device_slice.iter().flatten() {
@@ -229,9 +248,6 @@ unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
                     formats,
                 });
             }
-
-            // デバイス配列を解放
-            CoTaskMemFree(Some(devices_ptr as *const _));
         }
 
         Ok(devices)

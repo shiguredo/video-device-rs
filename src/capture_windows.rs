@@ -4,6 +4,7 @@ use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+use std::time::Duration;
 
 use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUID};
 
@@ -19,6 +20,42 @@ impl<T> SendPtr<T> {
     }
 }
 
+/// `MFStartup` 成功後、`VideoCapture` 構築に失敗したときだけ `MFShutdown` する。
+struct MfShutdownGuard {
+    active: bool,
+}
+
+impl MfShutdownGuard {
+    fn new() -> Self {
+        Self { active: true }
+    }
+}
+
+impl Drop for MfShutdownGuard {
+    fn drop(&mut self) {
+        if self.active {
+            unsafe {
+                let _ = MFShutdown();
+            }
+        }
+    }
+}
+
+/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する（activate_device 専用）。
+struct CoTaskMemActivateArrayGuard {
+    ptr: *mut Option<IMFActivate>,
+}
+
+impl Drop for CoTaskMemActivateArrayGuard {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                CoTaskMemFree(Some(self.ptr as *const _));
+            }
+        }
+    }
+}
+
 struct SessionData {
     source_reader: IMFSourceReader,
     media_source: IMFMediaSource,
@@ -27,6 +64,9 @@ struct SessionData {
     height: i32,
 }
 
+/// Windows 用ビデオキャプチャ (Media Foundation)。
+///
+/// [`Self::stop`] をフレームコールバック内から呼ばないこと（キャプチャスレッドが自身を `join` しデッドロックしうる）。
 pub struct VideoCapture {
     session: Option<SessionData>,
     context: Option<Arc<CaptureContext>>,
@@ -34,17 +74,33 @@ pub struct VideoCapture {
     config: VideoCaptureConfig,
 }
 
+fn validate_capture_config_for_windows(config: &VideoCaptureConfig) -> Result<()> {
+    // Media Foundation へ幅・高さ・fps を渡すとき `as u64` で属性に詰めるため、0 以下や負の i32 は
+    // 意図した解像度・フレームレートにならない。先に拒否する。
+    // Linux 向けの `VideoCapture` は `capture.rs` で別実装であり、不正値は C が既定に置き換えるので、
+    // 同じ拒否はこの Windows 専用の経路だけに置く。
+    if config.width <= 0 || config.height <= 0 || config.fps <= 0 {
+        return Err(Error::InvalidCaptureConfig(
+            "width, height, and fps must be positive integers on Windows",
+        ));
+    }
+    Ok(())
+}
+
 impl VideoCapture {
     pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + Sync + 'static,
     {
+        validate_capture_config_for_windows(&config)?;
+
         unsafe {
             // COM 初期化 (既に初期化済みの場合も許容する)
             let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
 
             // Media Foundation 初期化
             MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::SessionCreateFailed)?;
+            let mut mf_guard = MfShutdownGuard::new();
 
             // デバイスを取得
             let media_source = activate_device(config.device_id.as_deref())?;
@@ -76,6 +132,8 @@ impl VideoCapture {
                 width,
                 height,
             };
+
+            mf_guard.active = false;
 
             Ok(Self {
                 session: Some(session),
@@ -182,6 +240,8 @@ unsafe fn activate_device(device_id: Option<&str>) -> Result<IMFMediaSource> {
             return Err(Error::DeviceNotFound);
         }
 
+        let _devices_guard = CoTaskMemActivateArrayGuard { ptr: devices_ptr };
+
         let device_slice = std::slice::from_raw_parts(devices_ptr, count as usize);
 
         // 指定されたデバイスまたはデフォルトデバイスを選択
@@ -210,9 +270,6 @@ unsafe fn activate_device(device_id: Option<&str>) -> Result<IMFMediaSource> {
         let source: IMFMediaSource = activate
             .ActivateObject()
             .map_err(|_| Error::SessionCreateFailed)?;
-
-        // デバイス配列を解放
-        CoTaskMemFree(Some(devices_ptr as *const _));
 
         Ok(source)
     }
@@ -385,6 +442,8 @@ fn capture_thread_func(
             );
 
             if result.is_err() {
+                // ReadSample 連続失敗で CPU を占有しない
+                thread::sleep(Duration::from_millis(1));
                 continue;
             }
 
@@ -398,6 +457,23 @@ fn capture_thread_func(
 
         CoUninitialize();
     }
+}
+
+/// NV12 連続バッファに必要な Y+UV バイト数。
+fn nv12_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
+    let y = (width as usize).checked_mul(height as usize)?;
+    y.checked_add(y / 2)
+}
+
+/// I420 連結 Y+U+V に必要なバイト数（Y + U + V の合計が Y+Y/2 になる標準レイアウト）。
+fn i420_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
+    nv12_packed_frame_bytes(width, height)
+}
+
+/// YUY2 の 1 フレーム分のバイト数。
+fn yuy2_packed_frame_bytes_win(width: i32, height: i32) -> Option<usize> {
+    let stride = width.checked_mul(2)?;
+    (stride as usize).checked_mul(height as usize)
 }
 
 /// サンプルを処理
@@ -431,17 +507,34 @@ unsafe fn process_sample(
             return;
         }
 
+        if data_ptr.is_null() {
+            let _ = buffer.Unlock();
+            return;
+        }
+
+        if width <= 0 || height <= 0 {
+            let _ = buffer.Unlock();
+            return;
+        }
+
         let data = std::slice::from_raw_parts(data_ptr, current_length as usize);
 
         let frame = match pixel_format {
             PixelFormat::Nv12 => {
-                let y_size = (width * height) as usize;
-                if data.len() < y_size {
+                let Some(required) = nv12_packed_frame_bytes(width, height) else {
+                    let _ = buffer.Unlock();
+                    return;
+                };
+                if data.len() < required {
                     let _ = buffer.Unlock();
                     return;
                 }
+                let Some(y_size) = (width as usize).checked_mul(height as usize) else {
+                    let _ = buffer.Unlock();
+                    return;
+                };
                 let y_data = &data[..y_size];
-                let uv_data = &data[y_size..];
+                let uv_data = &data[y_size..required];
 
                 VideoFrame {
                     data: y_data,
@@ -456,13 +549,20 @@ unsafe fn process_sample(
                 }
             }
             PixelFormat::I420 => {
-                let y_size = (width * height) as usize;
-                if data.len() < y_size {
+                let Some(required) = i420_packed_frame_bytes(width, height) else {
+                    let _ = buffer.Unlock();
+                    return;
+                };
+                if data.len() < required {
                     let _ = buffer.Unlock();
                     return;
                 }
+                let Some(y_size) = (width as usize).checked_mul(height as usize) else {
+                    let _ = buffer.Unlock();
+                    return;
+                };
                 let y_data = &data[..y_size];
-                let uv_data = &data[y_size..];
+                let uv_data = &data[y_size..required];
 
                 VideoFrame {
                     data: y_data,
@@ -477,9 +577,20 @@ unsafe fn process_sample(
                 }
             }
             PixelFormat::Yuy2 => {
-                let stride = width * 2;
+                let Some(required) = yuy2_packed_frame_bytes_win(width, height) else {
+                    let _ = buffer.Unlock();
+                    return;
+                };
+                if data.len() < required {
+                    let _ = buffer.Unlock();
+                    return;
+                }
+                let Some(stride) = width.checked_mul(2) else {
+                    let _ = buffer.Unlock();
+                    return;
+                };
                 VideoFrame {
-                    data,
+                    data: &data[..required],
                     uv_data: None,
                     width,
                     height,

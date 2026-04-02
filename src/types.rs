@@ -17,6 +17,9 @@ pub(crate) const VIDEO_PIXEL_FORMAT_YUY2: u32 = 0x32595559;
 pub(crate) const VIDEO_PIXEL_FORMAT_I420: u32 = 0x30323449;
 
 /// ピクセルフォーマット
+///
+/// **Windows** では `to_raw` / `from_raw` はビルド対象に含まれない（`cfg` により定義されない）。
+/// 列挙・キャプチャは Media Foundation の `GUID` と内部で対応付けている。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PixelFormat {
     /// NV12 (YUV 4:2:0 semi-planar)
@@ -75,6 +78,7 @@ impl fmt::Display for PixelFormat {
 /// macOS の CVPixelBuffer へのオペーク参照
 ///
 /// Clone で retain、Drop で release する。
+/// **macOS 以外**では C からは常に NULL が渡る想定であり、非 NULL の `from_retained_ptr` 取り込みは行わない（サポート外）。
 #[derive(Default)]
 pub struct PixelBuffer {
     ptr: *mut c_void,
@@ -89,9 +93,16 @@ impl PixelBuffer {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) unsafe fn from_retained_ptr(ptr: *mut c_void) -> Option<Self> {
         if ptr.is_null() {
-            None
-        } else {
+            return None;
+        }
+        #[cfg(target_os = "macos")]
+        {
             Some(Self { ptr })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Linux では Drop で CFRelease しないため、非 NULL を保持するとリークしうる。契約上 NULL のみ。
+            None
         }
     }
 }
@@ -156,6 +167,11 @@ pub struct VideoFormat {
 }
 
 /// キャプチャ設定
+///
+/// **Windows** では `width` / `height` / `fps` はいずれも正の整数である必要がある（Media Foundation への渡し方のため）。
+/// **Linux（PipeWire 等）** では不正値を C 側が既定解像度・フレームレートに置き換える場合があるため、Rust 側では拒否しない。
+///
+/// ネゴシエーション結果が未知のピクセルフォーマットになる場合の挙動は、バックエンド（macOS / V4L2 / PipeWire / Windows）により異なりうる。
 pub struct VideoCaptureConfig {
     /// デバイス ID (None の場合はデフォルトデバイス)
     pub device_id: Option<String>,
@@ -181,7 +197,9 @@ impl Default for VideoCaptureConfig {
     }
 }
 
-/// キャプチャされたビデオフレームの生データ
+/// キャプチャされたビデオフレームの生データ（借用）。
+///
+/// `data` および `uv_data` が指すメモリの寿命は、ユーザに渡したコールバックの呼び出し中に限る。
 pub struct VideoFrame<'a> {
     /// Y プレーンまたはインターリーブデータ
     pub data: &'a [u8],
@@ -199,7 +217,7 @@ pub struct VideoFrame<'a> {
     pub pixel_format: PixelFormat,
     /// タイムスタンプ (マイクロ秒)
     pub timestamp_us: i64,
-    /// CVPixelBuffer へのオペーク参照 (macOS のみ)
+    /// CVPixelBuffer へのオペーク参照（**macOS のみ**。Linux では C から NULL のみ）
     pub pixel_buffer: Option<PixelBuffer>,
 }
 
@@ -220,7 +238,9 @@ impl<'a> VideoFrame<'a> {
     }
 }
 
-/// キャプチャされたビデオフレームの所有データ
+/// キャプチャされたビデオフレームの所有データ。
+///
+/// コールバック終了後も保持でき、別スレッドへ渡すなど寿命を延ばす用途はこちらを使う（[`VideoFrame::to_owned`]）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoFrameOwned {
     /// Y プレーンまたはインターリーブデータ
@@ -239,7 +259,7 @@ pub struct VideoFrameOwned {
     pub pixel_format: PixelFormat,
     /// タイムスタンプ (マイクロ秒)
     pub timestamp_us: i64,
-    /// CVPixelBuffer へのオペーク参照 (macOS のみ)
+    /// CVPixelBuffer へのオペーク参照（**macOS のみ**。Linux では C から NULL のみ）
     pub pixel_buffer: Option<PixelBuffer>,
 }
 

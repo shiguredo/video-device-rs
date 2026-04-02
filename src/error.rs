@@ -8,6 +8,8 @@ pub enum Error {
     SessionStartFailed,
     UnsupportedPixelFormat(PixelFormat),
     NullPointer(&'static str),
+    /// キャプチャ設定がプラットフォーム要件を満たさない（メッセージは英語）
+    InvalidCaptureConfig(&'static str),
 }
 
 impl std::fmt::Display for Error {
@@ -21,6 +23,7 @@ impl std::fmt::Display for Error {
                 write!(f, "unsupported pixel format: {format}")
             }
             Error::NullPointer(name) => write!(f, "null pointer: {}", name),
+            Error::InvalidCaptureConfig(msg) => write!(f, "invalid capture config: {}", msg),
         }
     }
 }
