@@ -325,8 +325,20 @@ static void on_process(void* userdata) {
         return;
     }
 
-    const uint8_t* data = spa_buf->datas[0].data;
+    // chunk が NULL のとき stride を参照すると未定義動作になる
+    if (!spa_buf->datas[0].chunk) {
+        pw_stream_queue_buffer(session->stream, buf);
+        return;
+    }
+
     int stride = spa_buf->datas[0].chunk->stride;
+    // 以降の y_size 計算で負や 0 の stride は使わない
+    if (stride <= 0) {
+        pw_stream_queue_buffer(session->stream, buf);
+        return;
+    }
+
+    const uint8_t* data = spa_buf->datas[0].data;
 
     // タイムスタンプを取得する
     int64_t timestamp_us;
