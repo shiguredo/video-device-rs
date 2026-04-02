@@ -172,6 +172,8 @@ fn get_device_formats(activate: &IMFActivate) -> Vec<VideoFormat> {
             index += 1;
         }
 
+        // ソースリーダーを先にスコープ外へ（明示的に解放）してからソースを Shutdown する（読み手が順序を追いやすくする）
+        drop(reader);
         let _ = source.Shutdown();
     }
 
@@ -181,15 +183,15 @@ fn get_device_formats(activate: &IMFActivate) -> Vec<VideoFormat> {
 /// デバイスを列挙
 fn enumerate_devices_internal() -> Result<Vec<VideoDevice>> {
     unsafe {
-        // COM 初期化 (既に初期化済みの場合も許容する)
+        // 列挙用にこのスレッドで COM を初期化する。対称の CoUninitialize は呼ばない（スレッドの参照カウントとアプリ方針に合わせる）。
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
 
-        // Media Foundation 初期化
+        // MFStartup が失敗した場合は参照カウントを増やしていないため MFShutdown は呼ばない（MSDN の初期化契約に従う）。
         MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::DeviceAccessDenied)?;
 
         let result = enumerate_devices_impl();
 
-        // Media Foundation 終了 (MFStartup と対にする)
+        // この関数内で成功した MFStartup と対になる MFShutdown
         let _ = MFShutdown();
 
         result

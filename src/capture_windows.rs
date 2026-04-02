@@ -4,6 +4,7 @@ use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
+use std::time::Duration;
 
 use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUID};
 
@@ -63,6 +64,9 @@ struct SessionData {
     height: i32,
 }
 
+/// Windows 用ビデオキャプチャ (Media Foundation)。
+///
+/// [`Self::stop`] をフレームコールバック内から呼ばないこと（キャプチャスレッドが自身を `join` しデッドロックしうる）。
 pub struct VideoCapture {
     session: Option<SessionData>,
     context: Option<Arc<CaptureContext>>,
@@ -438,6 +442,8 @@ fn capture_thread_func(
             );
 
             if result.is_err() {
+                // ReadSample 連続失敗で CPU を占有しない
+                thread::sleep(Duration::from_millis(1));
                 continue;
             }
 
@@ -579,7 +585,10 @@ unsafe fn process_sample(
                     let _ = buffer.Unlock();
                     return;
                 }
-                let stride = width * 2;
+                let Some(stride) = width.checked_mul(2) else {
+                    let _ = buffer.Unlock();
+                    return;
+                };
                 VideoFrame {
                     data: &data[..required],
                     uv_data: None,
