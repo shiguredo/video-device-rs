@@ -7,6 +7,21 @@ use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUI
 use crate::error::{Error, Result};
 use crate::types::{PixelFormat, VideoFormat};
 
+/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
+struct CoTaskMemActivateArrayGuard {
+    ptr: *mut Option<IMFActivate>,
+}
+
+impl Drop for CoTaskMemActivateArrayGuard {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                CoTaskMemFree(Some(self.ptr as *const _));
+            }
+        }
+    }
+}
+
 /// ビデオデバイス
 pub struct VideoDevice {
     name: String,
@@ -206,6 +221,8 @@ unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
         let mut devices = Vec::new();
 
         if count > 0 && !devices_ptr.is_null() {
+            let _devices_guard = CoTaskMemActivateArrayGuard { ptr: devices_ptr };
+
             let device_slice = std::slice::from_raw_parts(devices_ptr, count as usize);
 
             for activate in device_slice.iter().flatten() {
@@ -229,9 +246,6 @@ unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
                     formats,
                 });
             }
-
-            // デバイス配列を解放
-            CoTaskMemFree(Some(devices_ptr as *const _));
         }
 
         Ok(devices)
