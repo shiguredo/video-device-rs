@@ -75,6 +75,7 @@ impl fmt::Display for PixelFormat {
 /// macOS の CVPixelBuffer へのオペーク参照
 ///
 /// Clone で retain、Drop で release する。
+/// **macOS 以外**では C からは常に NULL が渡る想定であり、非 NULL の `from_retained_ptr` 取り込みは行わない（サポート外）。
 #[derive(Default)]
 pub struct PixelBuffer {
     ptr: *mut c_void,
@@ -89,9 +90,16 @@ impl PixelBuffer {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) unsafe fn from_retained_ptr(ptr: *mut c_void) -> Option<Self> {
         if ptr.is_null() {
-            None
-        } else {
+            return None;
+        }
+        #[cfg(target_os = "macos")]
+        {
             Some(Self { ptr })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Linux では Drop で CFRelease しないため、非 NULL を保持するとリークしうる。契約上 NULL のみ。
+            None
         }
     }
 }
@@ -204,7 +212,7 @@ pub struct VideoFrame<'a> {
     pub pixel_format: PixelFormat,
     /// タイムスタンプ (マイクロ秒)
     pub timestamp_us: i64,
-    /// CVPixelBuffer へのオペーク参照 (macOS のみ)
+    /// CVPixelBuffer へのオペーク参照（**macOS のみ**。Linux では C から NULL のみ）
     pub pixel_buffer: Option<PixelBuffer>,
 }
 
@@ -246,7 +254,7 @@ pub struct VideoFrameOwned {
     pub pixel_format: PixelFormat,
     /// タイムスタンプ (マイクロ秒)
     pub timestamp_us: i64,
-    /// CVPixelBuffer へのオペーク参照 (macOS のみ)
+    /// CVPixelBuffer へのオペーク参照（**macOS のみ**。Linux では C から NULL のみ）
     pub pixel_buffer: Option<PixelBuffer>,
 }
 

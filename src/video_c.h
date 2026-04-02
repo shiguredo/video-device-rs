@@ -28,7 +28,7 @@ struct VideoFormatEntry {
 // NV12 の場合: data は Y プレーン、uv_data は UV インターリーブプレーン
 // YUY2 の場合: data はパックドデータ、uv_data は NULL
 // I420 の場合: data は Y プレーン、uv_data は U プレーン + V プレーンを連結したデータ
-// pixel_buffer: macOS の CVPixelBuffer。未対応プラットフォームでは NULL
+// pixel_buffer: macOS の CVPixelBuffer (retained)。その他のプラットフォームでは必ず NULL（非 NULL は未サポート）
 //
 // The callback must not unwind (panic across this FFI boundary). Pointers data and uv_data are
 // valid only until the callback returns; do not retain slices for async use afterward. Copy the
