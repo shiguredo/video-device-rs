@@ -75,7 +75,8 @@ Model: Composer 2 Fast
 - **本 issue だけで修正可能**: はい。**`src/capture_windows.rs` のみ**で完結（他ファイルは触らない）。  
 - **変更履歴**: リポジトリに `CHANGES.md` が無い場合は、プロジェクト運用に従い別途追記するか省略。
 
-## 実装記録
+## 問題解決
 
-- `process_sample` 内の必要バイト数は、issue 本文どおりの判定だが、可読性のため **`nv12_packed_frame_bytes` / `i420_packed_frame_bytes` / `yuy2_packed_frame_bytes_win`** として**同ファイル内に非公開関数**として切り出した（本文は `process_sample` 内の直接計算を想定していたが、挙動は issue の「`required` で `data.len()` と比較」に相当）。
-- I420 / NV12 の `required` は Y+UV 相当の総量（Y + Y/2）で判定し、スライスは先頭 `required` バイトに限定した。
+- **`MFStartup` 成功後の失敗で `MFShutdown` されない問題**: `MfShutdownGuard` で構築成功までのエラー経路だけ `MFShutdown` するようにした。
+- **`activate_device` の列挙配列リーク**: `CoTaskMemActivateArrayGuard` で全 `Err` 経路を含め解放した。
+- **`process_sample` の境界**: null データポインタ・非正の幅・高さ・バッファ不足を拒否し、NV12/I420 は Y+UV 総量（Y + Y/2）、YUY2 は `stride * height` 分だけ `&data[..required]` に限定した。必要バイト数は **`nv12_packed_frame_bytes` / `i420_packed_frame_bytes` / `yuy2_packed_frame_bytes_win`** に切り出して同じ判定を維持した。

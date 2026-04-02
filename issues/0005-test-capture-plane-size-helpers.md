@@ -14,10 +14,10 @@ Model: Composer 2 Fast
 
 現実装は `i32` を `usize` にキャストしてから `checked_mul` しており、**64 bit 環境では `i32::MAX` 級の積でも `usize` の範囲内なら `None` にならない**。そのため **「オーバーフローで必ず `None`」を期待するテストは不適切**（実装を歪める圧力になる）。
 
-## 実装記録
+## 問題解決
 
-- **方針 A**（`capture.rs` 末尾の `#[cfg(test)] mod tests`）で追加した。
-- `i420_plane_sizes` の**具体値**は **0004 / 0008** で採用した macOS 整合の式に合わせた（テスト名 `i420_matches_macos_uv_formula`）。issue 作成時の行番号メモは古い。
+- **回 regress 防止**: 方針 A（`capture.rs` 末尾の `#[cfg(test)] mod tests`）で、不正ストライド・正常系・奇数高さ・YUY2・**0004/0008 で確定した I420 式**（`i420_matches_macos_uv_formula`）をテストに固定した。
+- issue 作成時の行番号メモは現行コードと一致しないため、参照はソースに従う。
 
 ## 実装方針（いずれか）
 

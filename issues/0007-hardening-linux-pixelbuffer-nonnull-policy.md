@@ -34,7 +34,7 @@ Model: Composer 2 Fast
 
 - `src/capture.rs` の `frame_callback` が `PixelBuffer::from_retained_ptr(pixel_buffer)` を呼ぶ箇所。
 
-## 実装記録
+## 問題解決
 
-- **方針 B**（非 macOS では `from_retained_ptr` が非 NULL でも `None` を返し、参照を保持しない）を実装した。
-- あわせて **方針 A** に相当する doc を `PixelBuffer`、`VideoFrame` / `VideoFrameOwned` の `pixel_buffer`、`video_c.h` の `pixel_buffer` 説明に追記した（契約の明示）。
+- **非 macOS で非 NULL の `pixel_buffer` を保持するとリークする問題**: 方針 B とし、`from_retained_ptr` は macOS 以外では非 NULL でも `None` を返し、参照を保持しないようにした。
+- **契約の明示**: 方針 A に相当する doc を `PixelBuffer`、`VideoFrame` / `VideoFrameOwned`、`video_c.h` に追記し、未対応プラットフォームでは NULL のみとした。
