@@ -27,8 +27,15 @@ Model: Composer 2 Fast
 
 ## 完了条件（チェックリスト）
 
-- [ ] 選んだ方針 A/B/C が `types.rs` または `video_c.h` に反映されている。
-- [ ] 新規のユーザ向けメッセージは英語、コメントは日本語でよい。
+- [x] 選んだ方針 A/B/C が `types.rs` または `video_c.h` に反映されている。
+- [x] 新規のユーザ向けメッセージは英語、コメントは日本語でよい。
+
+## 完了条件の検証
+
+2026-04-02 に `types.rs` と `video_c.h` を確認した。
+
+- 方針 B（非 NULL を保持しない）と方針 A に相当する doc 追記: `from_retained_ptr` は非 macOS で非 NULL でも `None`（`types.rs` 約 91〜103 行）。`PixelBuffer` / `VideoFrame` / `VideoFrameOwned` と `video_c.h` の `pixel_buffer` を更新。
+- 利用者向けの `Display` 等は既存どおり英語。コメントは日本語。
 
 ## 参考
 

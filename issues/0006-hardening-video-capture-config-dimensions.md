@@ -33,11 +33,19 @@ Model: Composer 2 Fast
 
 ## 完了条件（チェックリスト）
 
-- [ ] 採用した案（A または B）が issue または PR 説明に一文ある。
-- [ ] **Windows** で負またはゼロの **幅・高さ**がプロジェクトが選んだルールどおり拒否される（案 A の場合）。
-- [ ] **Windows** で **`fps`**（例: `fps <= 0` や負の扱い）が、**幅・高さと同じ方針**で拒否されるか、または意図的に許容するなら **`VideoCaptureConfig` の doc と実装の両方**にその旨がある（片方だけにしない）。
-- [ ] PipeWire の丸め挙動を壊していない、または案 B で意図的に壊す旨が文書化されている。
-- [ ] `VideoCaptureConfig` の doc に、**日本語で 1〜2 文**、幅・高さ・**fps** の前提（正の整数が必要か、PipeWire は C 側で丸めるか等）を書く。
+- [x] 採用した案（A または B）が issue または PR 説明に一文ある。
+- [x] **Windows** で負またはゼロの **幅・高さ**がプロジェクトが選んだルールどおり拒否される（案 A の場合）。
+- [x] **Windows** で **`fps`**（例: `fps <= 0` や負の扱い）が、**幅・高さと同じ方針**で拒否されるか、または意図的に許容するなら **`VideoCaptureConfig` の doc と実装の両方**にその旨がある（片方だけにしない）。
+- [x] PipeWire の丸め挙動を壊していない、または案 B で意図的に壊す旨が文書化されている。
+- [x] `VideoCaptureConfig` の doc に、**日本語で 1〜2 文**、幅・高さ・**fps** の前提（正の整数が必要か、PipeWire は C 側で丸めるか等）を書く。
+
+## 完了条件の検証
+
+2026-04-02 にソースとビルドで確認した。
+
+- 案 A: `capture_windows.rs` の `validate_capture_config_for_windows` と `Error::InvalidCaptureConfig`（`error.rs`）。`VideoCapture::new` 先頭で `width` / `height` / `fps` を一括検証。
+- Linux 用 `VideoCapture` は `capture.rs` のみのため PipeWire 経路で Rust 側の拒否は増えていない。`VideoCaptureConfig` の struct doc に Windows と Linux の差（約 166〜169 行）。
+- `cargo check --target x86_64-pc-windows-msvc` 成功。
 
 ## 変更履歴について
 

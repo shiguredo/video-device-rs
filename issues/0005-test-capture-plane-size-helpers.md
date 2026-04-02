@@ -51,5 +51,12 @@ Model: Composer 2 Fast
 
 ## 完了条件（チェックリスト）
 
-- [ ] `cargo test` で上記観点をカバーするテストが追加されている。
-- [ ] テスト名・コメントは方針に合わせる（コメントは日本語可）。
+- [x] `cargo test` で上記観点をカバーするテストが追加されている。
+- [x] テスト名・コメントは方針に合わせる（コメントは日本語可）。
+
+## 完了条件の検証
+
+2026-04-02 に `cargo test` とソースを確認した。
+
+- `capture.rs` 末尾に `#[cfg(test)] mod tests` があり、`nv12_plane_sizes` / `i420_plane_sizes` / `yuy2_packed_frame_bytes` を同モジュールから検証している。
+- `cargo test` は全テスト成功。

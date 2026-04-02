@@ -57,8 +57,15 @@ Rust 側の目標は、macOS の `from_raw_parts(uv_data, uv_size)` に渡す `u
 
 ## 完了条件（チェックリスト）
 
-- [ ] macOS I420 について、C の `uvSize` と Rust の UV バイト長が式レベルで突き合わせられ、コメントまたは文書に残っている。
-- [ ] V4L2 を触る場合は、**bytesperline 未使用の限界**をコメントに書くか、コード変更まで含めるかを明示したうえで対応する（無理に「一致した」と書かない）。
+- [x] macOS I420 について、C の `uvSize` と Rust の UV バイト長が式レベルで突き合わせられ、コメントまたは文書に残っている。
+- [x] V4L2 を触る場合は、**bytesperline 未使用の限界**をコメントに書くか、コード変更まで含めるかを明示したうえで対応する（無理に「一致した」と書かない）。
+
+## 完了条件の検証
+
+2026-04-02 にソースを確認した。
+
+- macOS: `video_c.m` に `uvSize` と Rust `i420_plane_sizes` の UV 式が一致する旨の日本語コメント（約 78〜82 行）。`capture.rs` の `i420_plane_sizes` に C と同じ `chroma_h`・`checked_mul` による UV 長（約 123〜138 行）。
+- V4L2: `video_v4l2.c` の NV12 コールバックに `bytesperline` と `session->width` の乖離しうる旨の日本語コメント（約 556〜557 行）。C の stride 渡しは未変更のまま限界を明示。
 
 ## 変更履歴について
 

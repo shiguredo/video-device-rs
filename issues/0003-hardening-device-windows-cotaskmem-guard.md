@@ -27,5 +27,12 @@ Model: Composer 2 Fast
 
 ## 完了条件（チェックリスト）
 
-- [ ] 列挙バッファが、正常終了・早期 return・パニックのいずれでもリークしない構造になっている。
-- [ ] `cargo check --target x86_64-pc-windows-msvc` が通る。
+- [x] 列挙バッファが、正常終了・早期 return・パニックのいずれでもリークしない構造になっている。
+- [x] `cargo check --target x86_64-pc-windows-msvc` が通る。
+
+## 完了条件の検証
+
+2026-04-02 にソースとビルドで確認した。
+
+- `device_windows.rs`: `MFEnumDeviceSources` 成功後に `CoTaskMemActivateArrayGuard` を束縛し、手動 `CoTaskMemFree` は削除済み（約 223〜224 行）。`enumerate_devices_impl` を通常のパニックアンワインドで抜ける場合、`Drop` で `CoTaskMemFree` が一度呼ばれる構造。
+- `cargo check --target x86_64-pc-windows-msvc` を実行し成功。

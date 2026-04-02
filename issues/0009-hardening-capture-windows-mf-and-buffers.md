@@ -64,10 +64,19 @@ Model: Composer 2 Fast
 
 ## 完了条件（チェックリスト）
 
-- [ ] `MfShutdownGuard` が `new` のエラー経路で `MFShutdown` する。  
-- [ ] `activate_device` の**全** `Err` 経路で列挙配列が解放される（ガードで確認）。  
-- [ ] `process_sample` が null ポインタ・非正の幅・高さ・バッファ不足・YUY2 のスライス範囲を扱う。  
-- [ ] `cargo check --target x86_64-pc-windows-msvc` が通る。
+- [x] `MfShutdownGuard` が `new` のエラー経路で `MFShutdown` する。  
+- [x] `activate_device` の**全** `Err` 経路で列挙配列が解放される（ガードで確認）。  
+- [x] `process_sample` が null ポインタ・非正の幅・高さ・バッファ不足・YUY2 のスライス範囲を扱う。  
+- [x] `cargo check --target x86_64-pc-windows-msvc` が通る。
+
+## 完了条件の検証
+
+2026-04-02 に `capture_windows.rs` とクロスコンパイルで確認した。
+
+- `MfShutdownGuard` が `MFStartup` 直後に束縛され、構築成功時のみ `active = false`（約 97 行・約 130 行）。
+- `activate_device` で `CoTaskMemActivateArrayGuard` を列挙直後に束縛。
+- `process_sample` で null ポインタ・非正の幅・高さ・`required` 不足を拒否し、YUY2 は `&data[..required]`。
+- `cargo check --target x86_64-pc-windows-msvc` 成功。
 
 ## 検討結果
 

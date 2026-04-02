@@ -58,9 +58,17 @@ Model: Composer 2 Fast
 
 ## 完了条件（チェックリスト）
 
-- [ ] 上記ヘルパが `frame_callback` から呼ばれ、負ストライド等で `from_raw_parts` に到達しない。
-- [ ] `cargo test` が通る（Linux/macOS ビルド対象）。
-- [ ] 新規コメントは日本語。
+- [x] 上記ヘルパが `frame_callback` から呼ばれ、負ストライド等で `from_raw_parts` に到達しない。
+- [x] `cargo test` が通る（Linux/macOS ビルド対象）。
+- [x] 新規コメントは日本語。
+
+## 完了条件の検証
+
+2026-04-02 に `capture.rs` と `cargo test` で確認した。
+
+- `frame_callback` が `nv12_plane_sizes` / `i420_plane_sizes` / `yuy2_packed_frame_bytes` 経由で長さを決め、`None` や null で早期 return している（約 149 行以降）。
+- ヘルパと `frame_callback` 付近のコメントは日本語。
+- `cargo test` 全成功。
 
 ## 検討結果
 
