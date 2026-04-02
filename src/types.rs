@@ -170,6 +170,8 @@ pub struct VideoFormat {
 ///
 /// **Windows** では `width` / `height` / `fps` はいずれも正の整数である必要がある（Media Foundation への渡し方のため）。
 /// **Linux（PipeWire 等）** では不正値を C 側が既定解像度・フレームレートに置き換える場合があるため、Rust 側では拒否しない。
+///
+/// ネゴシエーション結果が未知のピクセルフォーマットになる場合の挙動は、バックエンド（macOS / V4L2 / PipeWire / Windows）により異なりうる。
 pub struct VideoCaptureConfig {
     /// デバイス ID (None の場合はデフォルトデバイス)
     pub device_id: Option<String>,

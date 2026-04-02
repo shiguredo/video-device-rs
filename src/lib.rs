@@ -8,6 +8,11 @@
 //! [`VideoCapture::new`](VideoCapture::new) に渡すコールバックは、C から呼ばれる経路を跨ぐため**パニックしてはならない**。
 //! 渡される [`VideoFrame`] のスライスが指すメモリは、**そのコールバックの実行中にのみ**有効である。
 //! コールバック終了後にデータを保持したい場合は [`VideoFrame::to_owned`] で [`VideoFrameOwned`] にコピーする。
+//!
+//! ネイティブが未知の FourCC を送った場合、実装によってはユーザーコールバックにフレームが渡らないことがある（プラットフォーム・デバイスにより異なる）。
+//!
+//! **キャプチャコールバック内から** [`VideoCapture::stop`](VideoCapture::stop) を呼ばないこと。
+//! 特に Windows ではキャプチャスレッドが `join` 自身しデッドロックしうる。
 
 mod error;
 mod types;
