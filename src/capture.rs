@@ -235,3 +235,51 @@ extern "C" fn frame_callback(
 
     (context.callback)(frame);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{i420_plane_sizes, nv12_plane_sizes, yuy2_packed_frame_bytes};
+
+    #[test]
+    fn nv12_rejects_non_positive_dimensions() {
+        assert_eq!(nv12_plane_sizes(0, 4, 480), None);
+        assert_eq!(nv12_plane_sizes(4, 0, 480), None);
+        assert_eq!(nv12_plane_sizes(4, 4, 0), None);
+        assert_eq!(nv12_plane_sizes(-1, 4, 480), None);
+    }
+
+    #[test]
+    fn nv12_small_known_sizes() {
+        // Y: 4*2=8, UV 行は div_ceil(2,2)=1, UV: 4*1=4
+        assert_eq!(nv12_plane_sizes(4, 4, 2), Some((8, 4)));
+    }
+
+    #[test]
+    fn nv12_odd_height_uv_rows_use_div_ceil() {
+        // height=3 -> uv 行数 2, UV: stride_uv * 2
+        assert_eq!(nv12_plane_sizes(8, 8, 3), Some((24, 16)));
+    }
+
+    #[test]
+    fn i420_matches_macos_uv_formula() {
+        // video_c.m: uvSize = strideUV * chromaHeight * 2, chromaHeight = (height + 1) / 2
+        // height=480, stride_uv=320 -> chroma_h=240, uv=320*240*2=153600
+        assert_eq!(i420_plane_sizes(640, 320, 480), Some((307_200, 153_600)));
+        // 奇数 height=3, stride_uv=4 -> chroma_h=2, uv=4*2*2=16
+        assert_eq!(i420_plane_sizes(8, 4, 3), Some((24, 16)));
+    }
+
+    #[test]
+    fn i420_rejects_non_positive() {
+        assert_eq!(i420_plane_sizes(0, 4, 100), None);
+        assert_eq!(i420_plane_sizes(4, 0, 100), None);
+        assert_eq!(i420_plane_sizes(4, 4, -1), None);
+    }
+
+    #[test]
+    fn yuy2_packed_bytes_stride_times_height() {
+        assert_eq!(yuy2_packed_frame_bytes(640, 480), Some(307_200));
+        assert_eq!(yuy2_packed_frame_bytes(0, 480), None);
+        assert_eq!(yuy2_packed_frame_bytes(640, 0), None);
+    }
+}
