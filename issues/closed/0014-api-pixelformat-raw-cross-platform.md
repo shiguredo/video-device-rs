@@ -1,7 +1,8 @@
 # `PixelFormat::from_raw` / `to_raw` の Windows との API 対称性
 
 Created: 2026-04-02  
-Model: Composer 1
+Model: Composer 1  
+Completed: 2026-04-02
 
 ## なぜこの対応が必要か
 
@@ -62,3 +63,22 @@ Model: Composer 1
 |----------|----------|
 | `src/types.rs` | 定数の `cfg`、メソッド追加、rustdoc |
 | `src/capture_windows.rs` | 重複があれば `pixel_format_to_guid` と共通化 |
+
+## 解決方法
+
+### 方針
+
+issue の **オプション A（ドキュメントのみ・破壊なし）** を採用した。Windows 向けに `from_raw` / `to_raw` を新たに公開する API 追加（オプション B）は行っていない。
+
+### 実装内容
+
+**ファイル**: `src/types.rs`。
+
+1. **`PixelFormat` 型の rustdoc**（19〜22 行付近）に以下を記載した。
+   - **Windows** では `to_raw` / `from_raw` は **`#[cfg(any(macos, linux))]` によりビルドに含まれない**（利用するとコンパイルエラーになる）。
+   - **列挙・キャプチャ**では Media Foundation の **`GUID`** と `PixelFormat` の対応を **`device_windows.rs` / `capture_windows.rs` 内**で行っている。
+2. **定数 `VIDEO_PIXEL_FORMAT_*`** は従来どおり macOS/Linux のみ（11〜17 行）。Windows は FourCC 定数を公開 API としては露出しない。
+
+### 利用者向けの読み方
+
+クロスプラットフォームで FourCC 数値とやり取りする場合は **macOS/Linux では `to_raw` / `from_raw`**、**Windows では内部の GUID 対応に依存せず、本クレートの `VideoCaptureConfig` と列挙結果の `PixelFormat` を使う**形が前提になる、という旨がドキュメントから分かるようにした。

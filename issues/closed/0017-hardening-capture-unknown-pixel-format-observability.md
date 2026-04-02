@@ -1,7 +1,8 @@
 # Unix `frame_callback` が `PixelFormat::Unknown` のときユーザーコールバックを呼ばない件の観測可能性
 
 Created: 2026-04-02  
-Model: Composer 1
+Model: Composer 1  
+Completed: 2026-04-02
 
 ## なぜこの対応が必要か
 
@@ -57,3 +58,26 @@ Model: Composer 1
 | `src/lib.rs` | クレートドキュメント |
 | `src/types.rs` | 任意: `VideoCaptureConfig` の doc |
 | `src/capture.rs` | 任意: `tracing` |
+
+## 解決方法
+
+### 方針
+
+issue の **レベル 1（ドキュメントのみ）** を採用した。**レベル 2**（`tracing` による一度だけの `warn`）および **`capture.rs` の `Unknown` 分岐の変更**は行っていない。
+
+### 挙動（コード上の事実）
+
+**ファイル**: `src/capture.rs` の `frame_callback`。
+
+- C から渡る `pixel_format` を `PixelFormat::from_raw` し、**`Unknown(_)` のときは `return` し、ユーザーコールバック `(context.callback)(frame)` に到達しない**（238 行付近）。このロジックは本 issue では変更していない。
+
+### ドキュメントで足したこと
+
+**ファイル**: `src/lib.rs` の「## フレームコールバック」節（12 行付近）。
+
+- **ネイティブが未知の FourCC を送った場合**、**実装によってはユーザーコールバックにフレームが渡らない**ことがある。
+- **プラットフォーム・デバイスにより異なる**旨を 1 文で明記。
+
+### `closed/0002` との整合
+
+`0002` で書いた **コールバック内のパニック禁止・スライス寿命**の契約と矛盾せず、**「未知フォーマットではコールバックが呼ばれない場合がある」**という **観測可能性の欠如を仕様として読める**ようにした（ログではなくドキュメントで補う）。

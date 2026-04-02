@@ -1,7 +1,8 @@
 # Unix `VideoDevice::format_count` と `formats()` の件数が一致しない場合の説明
 
 Created: 2026-04-02  
-Model: Composer 1
+Model: Composer 1  
+Completed: 2026-04-02
 
 ## なぜこの対応が必要か
 
@@ -57,3 +58,25 @@ Model: Composer 1
 |----------|----------|
 | `src/device.rs` | rustdoc |
 | `examples/device_info.rs` | 任意 |
+
+## 解決方法
+
+### 方針
+
+**タスク 1（必須）**のみ実施。`examples/device_info.rs` の JSON キー変更（タスク 2）は行っていない（破壊的変更のため）。
+
+### 実装内容
+
+**ファイル**: `src/device.rs`。
+
+1. **`format_count`（34〜41 行）**
+   - **意味**: C 側 FFI `video_device_format_count` が返す **エントリ数（インデックスの上限）**。
+   - **注意**: 続く `formats()` は **NULL を返したインデックスをスキップ**するため、**返す `Vec` の要素数が `format_count()` より小さい場合がある**ことを rustdoc に明記。
+
+2. **`formats`（44〜68 行）**
+   - **意味**: **実際に `video_device_get_format` から非 NULL で取得できた** `VideoFormat` のリスト。
+   - **`format_count()` と一致しない場合がある**こと、理由が上記のスキップであることを rustdoc に明記。
+
+### 利用者が誤解しやすい点の整理
+
+- `device_info` サンプルの JSON で `format_count` というキーに **`formats.len()`** を載せている場合、**メソッド `device.format_count()` とは別物**になり得る。本 issue の rustdoc は **ライブラリ API の意味**を固定するのが主目的である。

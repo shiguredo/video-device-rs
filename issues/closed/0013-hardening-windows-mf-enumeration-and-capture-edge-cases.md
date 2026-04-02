@@ -1,7 +1,8 @@
 # Windows: デバイス列挙・キャプチャの残課題（COM、`ReadSample`、コールバックと `join`）
 
 Created: 2026-04-02  
-Model: Composer 1
+Model: Composer 1  
+Completed: 2026-04-02
 
 ## 背景・重複確認
 
@@ -73,3 +74,42 @@ CoInitializeEx → MFStartup → enumerate_devices_impl → MFShutdown → resul
 | `src/device_windows.rs` |
 | `src/capture_windows.rs` |
 | `src/lib.rs`（ドキュメントのみの場合） |
+
+## 解決方法
+
+### W1: `get_device_formats` の解放順（可読性）
+
+**ファイル**: `src/device_windows.rs` の `get_device_formats`。
+
+メディアタイプ列挙ループの後、**`IMFSourceReader` を先に `drop(reader)`** し、その後 **`source.Shutdown()`** を呼ぶ（175〜177 行）。issue の「`reader` を先にスコープ外にする」方針どおり。`Shutdown` と `Release`（Drop）を同一視しない前提は維持し、**読み手が順序を追いやすくする**リファクタに留めた。
+
+### W2: 列挙パスの MF / COM とコメント
+
+**ファイル**: `src/device_windows.rs` の `enumerate_devices_internal`。
+
+- **`CoInitializeEx` 後に `CoUninitialize` を呼ばない**理由を日本語コメントで記載（186 行付近）。スレッドの参照カウントとアプリ方針に合わせる旨。
+- **`MFStartup` が失敗したときは `MFShutdown` を呼ばない**ことを、MSDN の初期化契約に従う旨でコメント（189 行付近）。
+- 成功時のみ **`enumerate_devices_impl` の後に `MFShutdown`**（194〜195 行）。
+
+### W3: `ReadSample` 失敗時の CPU 占有
+
+**ファイル**: `src/capture_windows.rs` の `capture_thread_func`。
+
+`ReadSample` が `Err` のとき、`thread::sleep(Duration::from_millis(1))` してから `continue`（444〜447 行）。連続失敗でビジーループにならないようにした。
+
+### W4: コールバック内 `stop` の禁止
+
+**ファイル**: `src/capture_windows.rs` の `VideoCapture` 構造体の rustdoc（67〜69 行）。
+
+**キャプチャコールバック内から `stop` を呼ばない**こと、**同じスレッドが `join` 自身しデッドロックしうる**ことを明記。`src/lib.rs` のクレートドキュメント（14〜15 行）とも整合。
+
+### W5: YUY2 の `stride` と `required` バイト数
+
+**ファイル**: `src/capture_windows.rs`。
+
+- **`yuy2_packed_frame_bytes_win`**: `width.checked_mul(2)` でストライドを得てから高さ分を掛ける（474〜476 行）。オーバーフロー時は `None`。
+- **`process_sample` の YUY2 分岐**: `required` 算出失敗時は `Unlock` して return（579〜583 行）。`stride` は **`width.checked_mul(2)`**（588〜591 行）。失敗時はフレームを組み立てず return。
+
+### `closed/0009` との関係
+
+`0009` で `process_sample` のバッファ検証・MF ガード等が入った後でも、本 issue の列挙・`ReadSample`・ドキュメント・YUY2 `checked_mul` は **別コミット相当の追加対応**として両立している。

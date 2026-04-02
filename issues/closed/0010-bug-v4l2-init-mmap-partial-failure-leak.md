@@ -1,7 +1,8 @@
 # V4L2 `init_mmap` が途中失敗したときの mmap / buffers のリーク
 
 Created: 2026-04-02  
-Model: Composer 1
+Model: Composer 1  
+Completed: 2026-04-02
 
 ## なぜこの対応が必要か
 
@@ -79,3 +80,21 @@ Model: Composer 1
 | ファイル | 変更想定 |
 |----------|----------|
 | `src/video_v4l2.c` | `init_mmap`、必要なら `cleanup_mmap` のコメント |
+
+## 解決方法
+
+### 問題の整理
+
+`init_mmap` がループ途中で失敗した場合、既に `mmap` したバッファと `calloc` した `session->buffers` が残ったまま `return -1` していた。`video_session_create` の失敗パスは `close(fd); free(session);` のみで **`cleanup_mmap` を呼ばない**ため、`munmap` と `buffers` の `free` が行われずリーク・リソース残存になっていた。
+
+### 実装内容
+
+1. **`init_mmap` 内の失敗経路を `fail:` に集約**（`src/video_v4l2.c`）。`VIDIOC_QUERYBUF` が失敗したとき（374〜376 行付近）と、`mmap` が `MAP_FAILED` のとき（382〜384 行付近）は `goto fail` とした。
+2. **`fail:` で `cleanup_mmap(session)` を呼び、その後 `return -1`**（389〜392 行）。既存の `cleanup_mmap` が各 `mmap` を `munmap` し、`free(session->buffers)` して `session->buffers = NULL` にする。
+3. **`cleanup_mmap` で `session->buffer_count = 0` をセット**（403〜404 行）。部分初期化後も `buffer_count` とループ回数が一致するようにした。
+4. **日本語コメント**で「部分失敗時: 既に mmap した領域と buffers 配列を解放する」と記載した（390 行付近）。
+5. **`video_session_create` 側**は、`init_mmap` 失敗後に `session->buffers` が NULL になるため、従来どおり `close(fd); free(session);` でよい（変更なし）。
+
+### 検証の目安
+
+`REQBUFS` 失敗・`req.count < 2`・`calloc` 失敗の経路では従来どおり `buffers` 未割当のため `cleanup_mmap` は実質 no-op。問題だったのは **`calloc` 成功後のループ内失敗**のみ。

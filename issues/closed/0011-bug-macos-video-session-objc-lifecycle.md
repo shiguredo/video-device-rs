@@ -1,7 +1,8 @@
 # macOS `VideoSession` の ObjC オブジェクト寿命と `video_session_destroy`
 
 Created: 2026-04-02  
-Model: Composer 1
+Model: Composer 1  
+Completed: 2026-04-02
 
 ## レビュー反映（2026-04-02）
 
@@ -78,3 +79,20 @@ Model: Composer 1
 |----------|----------|
 | `src/video_c.m` | `video_session_create` / `video_session_destroy` |
 | `build.rs` | 通常は変更不要（`-fobjc-arc` 維持） |
+
+## 解決方法
+
+### 実装したこと（PR #3 / コミット `4199d8c`）
+
+`src/video_c.m` の `video_session_destroy` に、**`malloc` した `struct VideoSession` に載せた ObjC オブジェクトは ARC が参照カウント管理する**こと、**セッションから入出力を外してから `free` し、`malloc` 領域だけを解放する**旨の **日本語コメント**を追加した。**挙動の変更はない**（`removeInput` / `removeOutput` → `free` の順は従来どおり）。
+
+レビュー反映により issue 本文の前提を整理したとおり、**早期 `return NULL` 経路のローカル変数は ARC のスコープ終了で解放**され、主題は **struct フィールド代入後の寿命と `video_session_destroy`** に絞った。
+
+### Instruments（Leaks）について
+
+**自動化・CI では実行しない**前提とし、**本 issue の完了条件からは外す**。手元の Mac で Leaks を回す検証は **任意**（時間が取れたとき・疑いがあるとき）。コメント内に `Instruments でリーク有無を確認すること` と **推奨メモ**として残している。
+
+### 実施していないこと（意図的にスコープ外）
+
+- フェーズ 2 以降の **`delegate` / `dispatch_queue` の追加クリーンアップ**（現状の実装で問題が出たときに別途検討）。
+- **`malloc` struct の廃止**（フェーズ 3・別 issue 向け）。

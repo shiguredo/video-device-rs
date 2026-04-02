@@ -1,7 +1,8 @@
 # サンプル `camera_preview` のフレーム境界・チャネル背圧
 
 Created: 2026-04-02  
-Model: Composer 1
+Model: Composer 1  
+Completed: 2026-04-02
 
 ## なぜこの対応が必要か
 
@@ -78,3 +79,36 @@ Model: Composer 1
 |----------|
 | `examples/camera_preview.rs` |
 | `Cargo.toml`（feature の説明は変更しない場合も可） |
+
+## 解決方法
+
+### 方針
+
+サンプルを **パニックしない**こと、キャプチャ **コールバック内でチャネル送信がブロックしない**こと（レビュー反映の P2）を優先した。
+
+### `strip_stride`（`examples/camera_preview.rs`）
+
+- `row_bytes == 0` または `height == 0` は空の `Vec` を返す（153〜155 行付近）。
+- **`row_bytes * height`** は `checked_mul` で計算し、オーバーフロー時は空（156〜158 行）。
+- `stride == 0` は空（159〜161 行）。
+- **`stride == row_bytes`** のとき、`data.len() < total_needed` なら空（162〜165 行）。十分なら `&data[..total_needed]` を借用。
+- **stride が行幅より大きい**場合は、最終行の終端が `data.len()` を超えないか、`checked_add` で検証しつつ行ループでコピー（168〜188 行付近）。いずれかの検証に失敗したら空の `Vec`。
+
+### `enqueue_video_frame`
+
+- **`frame.width <= 0 || frame.height <= 0`**: 英語ログを `std::sync::Once` で最大 1 回、`Ok(())` で return（223〜230 行）。
+- **I420**: `uv_data` が無ければ return。`u_plane_size` と `uv_total` を `checked_mul` で算出し、**`uv_data.len() < uv_total`** なら英語ログ 1 回で return（247〜268 行）。
+- **`PixelFormat::Unknown`**: サンプル側で警告を一度だけ出し、enqueue はしない（278〜286 行）。
+
+### 解像度パース
+
+- **`parse_resolution`** のカスタム `WxH` で、`w > 0 && h > 0` のときだけ `Some`（67〜69 行）。負やゼロは `None`。
+
+### チャネルと背圧
+
+- **`sync_channel::<VideoFrameOwned>(4)`** と **`try_send`**（299〜319 行）。満杯または受信側切断時は `Err` を握りつぶさず、**`Once` で英語ログ 1 回**（コールバック内でブロックしない）。
+- **日本語コメント**で、無制限 `mpsc` の問題と、上限付き + `try_send` の理由を記載（299〜300 行）。
+
+### メインループ
+
+受信は **`rx.try_recv()`** でポーリング（357〜364 行）。キャプチャと UI の両立のための構成で、issue の「別スレッドで受信」までは必須としなかった。

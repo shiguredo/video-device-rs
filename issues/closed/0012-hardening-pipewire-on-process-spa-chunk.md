@@ -1,7 +1,8 @@
 # PipeWire `on_process` で `spa_buffer` の `chunk` を参照する前に NULL チェックする
 
 Created: 2026-04-02  
-Model: Composer 1
+Model: Composer 1  
+Completed: 2026-04-02
 
 ## なぜこの対応が必要か
 
@@ -70,3 +71,21 @@ Model: Composer 1
 | ファイル | 変更想定 |
 |----------|----------|
 | `src/video_pipewire.c` | `on_process`、任意で `on_param_changed` |
+
+## 解決方法
+
+### 問題の整理
+
+`spa_buf->datas[0].data` は NULL チェック済みでも、`spa_buf->datas[0].chunk->stride` は **`chunk` が NULL のとき未定義動作**になる。また `stride` が 0 以下だと以降のフレームサイズ計算が危険になる。さらに `chunk->size` と実際に読みたいバイト数 `need` が不整合なら、`plane` からの読み出しがチャンクの有効範囲を越える。
+
+### 実装内容（`src/video_pipewire.c` の `on_process`）
+
+1. **`chunk` が NULL** のとき: `pw_stream_queue_buffer` して return（409〜413 行）。日本語コメントで「chunk が NULL のとき stride を参照すると未定義動作」を記載（409 行）。
+2. **`stride <= 0`** のとき: 同様にキューへ戻して return（417〜421 行）。コメントで y_size 計算に使わない旨を記載。
+3. **データ参照**: `chunk` 取得後に `plane = data + chunk->offset` とし、SPA の `[offset, offset+size)` 契約に沿う（423〜425 行）。
+4. **フォーマット別の必要バイト数 `need`**: `required_bytes_nv12` / `required_bytes_i420` / `required_bytes_yuy2` で算出し、**`chunk->size == 0` または `need > chunk->size`** のときはコールバックせずキューへ戻す（473〜477 行）。日本語コメントで「壊れたメタデータで plane から need バイト読むと chunk の有効範囲を超える場合はコールバックしない」と記載。
+5. **幅・高さ非正**は既存どおり拒否（446〜449 行）。
+
+### issue 本文との差異
+
+issue が任意としていた `negotiated_stride` による `chunk == NULL` 時のフォールバックは未実装。**NULL 時はフレームを捨てる防御のみ**とし、観測可能性はログではなく安全側の早期 return とした。
