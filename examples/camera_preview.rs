@@ -255,17 +255,20 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
             let Some(u_plane_size) = stride_uv.checked_mul(uv_h) else {
                 return Ok(());
             };
-            if uv_data.len() < u_plane_size {
+            let Some(uv_total) = u_plane_size.checked_mul(2) else {
+                return Ok(());
+            };
+            if uv_data.len() < uv_total {
                 static LOG_I420: Once = Once::new();
                 LOG_I420.call_once(|| {
                     eprintln!(
-                        "enqueue_video_frame: I420 uv_data slice too short for declared strides"
+                        "enqueue_video_frame: I420 uv_data slice too short for U and V planes"
                     );
                 });
                 return Ok(());
             }
             let u = strip_stride(&uv_data[..u_plane_size], uv_w, uv_h, stride_uv);
-            let v = strip_stride(&uv_data[u_plane_size..], uv_w, uv_h, stride_uv);
+            let v = strip_stride(&uv_data[u_plane_size..uv_total], uv_w, uv_h, stride_uv);
             player.enqueue_video_i420(&y, &u, &v, frame.width, frame.height, pts_us)?;
         }
         PixelFormat::Yuy2 => {
