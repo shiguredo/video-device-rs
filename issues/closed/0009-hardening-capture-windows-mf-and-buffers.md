@@ -1,7 +1,8 @@
 # Windows `capture_windows.rs` の MF 初期化・列挙バッファ・サンプルバッファを防御する
 
 Created: 2026-04-02  
-Model: Composer 2 Fast
+Model: Composer 2 Fast  
+Completed: 2026-04-02
 
 ## 目的
 

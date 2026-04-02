@@ -1,7 +1,8 @@
 # `VideoCaptureConfig` の幅・高さ・fps の妥当性を検証する
 
 Created: 2026-04-02  
-Model: Composer 2 Fast
+Model: Composer 2 Fast  
+Completed: 2026-04-02
 
 ## 目的
 

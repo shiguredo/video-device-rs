@@ -1,7 +1,8 @@
 # キャプチャ用プレーン長計算の単体テストを追加する
 
 Created: 2026-04-02  
-Model: Composer 2 Fast
+Model: Composer 2 Fast  
+Completed: 2026-04-02
 
 ## 目的
 

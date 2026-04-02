@@ -1,7 +1,8 @@
 # 非 macOS で `pixel_buffer` が非 NULL のときの扱いを固定する
 
 Created: 2026-04-02  
-Model: Composer 2 Fast
+Model: Composer 2 Fast  
+Completed: 2026-04-02
 
 ## 目的
 

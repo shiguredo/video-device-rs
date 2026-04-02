@@ -1,7 +1,8 @@
 # Unix `capture.rs` のフレームコールバックでストライド・プレーン長を検証する
 
 Created: 2026-04-02  
-Model: Composer 2 Fast
+Model: Composer 2 Fast  
+Completed: 2026-04-02
 
 ## 目的
 
