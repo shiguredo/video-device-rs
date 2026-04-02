@@ -10,7 +10,8 @@
 //! ```
 
 use std::borrow::Cow;
-use std::sync::mpsc;
+use std::sync::Once;
+use std::sync::mpsc::sync_channel;
 use std::time::Instant;
 
 use raw_player::{KEYCODE_ESCAPE, VideoPlayer};
@@ -65,7 +66,7 @@ fn parse_resolution(s: &str) -> Option<(i32, i32)> {
             if parts.len() == 2 {
                 let w = parts[0].parse().ok()?;
                 let h = parts[1].parse().ok()?;
-                Some((w, h))
+                if w > 0 && h > 0 { Some((w, h)) } else { None }
             } else {
                 None
             }
@@ -142,22 +143,50 @@ fn parse_args() -> Args {
 
 /// stride を除去してピクセルデータのみを取り出す。
 /// stride == row_bytes の場合はゼロコピーで借用を返す。
+/// 寸法・スライス長が不整合なら空の `Vec` を返しパニックしない。
 fn strip_stride<'a>(
     data: &'a [u8],
     row_bytes: usize,
     height: usize,
     stride: usize,
 ) -> Cow<'a, [u8]> {
-    if stride == row_bytes {
-        Cow::Borrowed(&data[..row_bytes * height])
-    } else {
-        let mut result = Vec::with_capacity(row_bytes * height);
-        for row in 0..height {
-            let start = row * stride;
-            result.extend_from_slice(&data[start..start + row_bytes]);
-        }
-        Cow::Owned(result)
+    if row_bytes == 0 || height == 0 {
+        return Cow::Owned(Vec::new());
     }
+    let Some(total_needed) = row_bytes.checked_mul(height) else {
+        return Cow::Owned(Vec::new());
+    };
+    if stride == 0 {
+        return Cow::Owned(Vec::new());
+    }
+    if stride == row_bytes {
+        if data.len() < total_needed {
+            return Cow::Owned(Vec::new());
+        }
+        return Cow::Borrowed(&data[..total_needed]);
+    }
+    let last_row_start = match height.checked_sub(1).and_then(|r| r.checked_mul(stride)) {
+        Some(o) => o,
+        None => return Cow::Owned(Vec::new()),
+    };
+    let Some(end) = last_row_start.checked_add(row_bytes) else {
+        return Cow::Owned(Vec::new());
+    };
+    if end > data.len() {
+        return Cow::Owned(Vec::new());
+    }
+    let mut result = Vec::with_capacity(total_needed);
+    for row in 0..height {
+        let start = row * stride;
+        let Some(row_end) = start.checked_add(row_bytes) else {
+            return Cow::Owned(Vec::new());
+        };
+        if row_end > data.len() {
+            return Cow::Owned(Vec::new());
+        }
+        result.extend_from_slice(&data[start..row_end]);
+    }
+    Cow::Owned(result)
 }
 
 fn list_devices() {
@@ -191,6 +220,16 @@ fn list_devices() {
 
 /// VideoFrame の PixelFormat に応じて適切な enqueue メソッドを呼び出す。
 fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_player::Result<()> {
+    if frame.width <= 0 || frame.height <= 0 {
+        static LOG: Once = Once::new();
+        LOG.call_once(|| {
+            eprintln!(
+                "enqueue_video_frame: invalid frame dimensions (width/height must be positive)"
+            );
+        });
+        return Ok(());
+    }
+
     let w = frame.width as usize;
     let h = frame.height as usize;
     let stride = frame.stride as usize;
@@ -213,7 +252,18 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
             };
             let uv_w = w / 2;
             let uv_h = h / 2;
-            let u_plane_size = stride_uv * uv_h;
+            let Some(u_plane_size) = stride_uv.checked_mul(uv_h) else {
+                return Ok(());
+            };
+            if uv_data.len() < u_plane_size {
+                static LOG_I420: Once = Once::new();
+                LOG_I420.call_once(|| {
+                    eprintln!(
+                        "enqueue_video_frame: I420 uv_data slice too short for declared strides"
+                    );
+                });
+                return Ok(());
+            }
             let u = strip_stride(&uv_data[..u_plane_size], uv_w, uv_h, stride_uv);
             let v = strip_stride(&uv_data[u_plane_size..], uv_w, uv_h, stride_uv);
             player.enqueue_video_i420(&y, &u, &v, frame.width, frame.height, pts_us)?;
@@ -223,7 +273,6 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
             player.enqueue_video_yuy2(&data, frame.width, frame.height, pts_us)?;
         }
         PixelFormat::Unknown(_) => {
-            use std::sync::Once;
             static WARN: Once = Once::new();
             WARN.call_once(|| {
                 eprintln!(
@@ -244,8 +293,9 @@ fn main() {
         return;
     }
 
-    // キャプチャスレッドからメインスレッドへフレームを送るチャネル
-    let (tx, rx) = mpsc::channel::<VideoFrameOwned>();
+    // キャプチャスレッドからメインスレッドへフレームを送るチャネル。
+    // 無制限 mpsc はメモリ増大しうるため、上限付き sync_channel と try_send でブロックしない背圧とする。
+    let (tx, rx) = sync_channel::<VideoFrameOwned>(4);
 
     // VideoCapture を作成
     let video_config = VideoCaptureConfig {
@@ -256,7 +306,14 @@ fn main() {
         pixel_format: None,
     };
     let mut video_capture = VideoCapture::new(video_config, move |frame: VideoFrame<'_>| {
-        let _ = tx.send(frame.to_owned());
+        if tx.try_send(frame.to_owned()).is_err() {
+            static DROP_LOG: Once = Once::new();
+            DROP_LOG.call_once(|| {
+                eprintln!(
+                    "camera_preview: dropped frame (channel full or receiver disconnected); further drops are silent"
+                );
+            });
+        }
     })
     .expect("VideoCapture の作成に失敗しました");
 
