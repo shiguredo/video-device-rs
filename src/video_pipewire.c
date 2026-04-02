@@ -292,20 +292,40 @@ static int add_u64_ov(uint64_t a, uint64_t b, uint64_t* out) {
     return 1;
 }
 
-// NV12/I420 の連続レイアウト（Y + 連続 UV）で読むのに必要なバイト数（stride 行揃え前提）
-static int required_bytes_nv12_i420_like(int32_t stride, int height, uint64_t* out) {
-    if (stride <= 0 || height <= 0) {
+// NV12: Rust `nv12_plane_sizes`（capture.rs）と同じ Y/UV バイト数
+static int required_bytes_nv12(int32_t stride, int32_t stride_uv, int height, uint64_t* out) {
+    if (stride <= 0 || stride_uv <= 0 || height <= 0) {
         return 0;
     }
-    uint64_t s = (uint64_t)stride;
-    uint64_t h = (uint64_t)height;
     uint64_t y_bytes;
-    if (!mul_u64_ov(s, h, &y_bytes)) {
+    if (!mul_u64_ov((uint64_t)stride, (uint64_t)height, &y_bytes)) {
         return 0;
     }
-    uint64_t uv_h = (uint64_t)(height / 2);
+    // UV 行数は `height.div_ceil(2)` と同じ（奇数高さで `height/2` より 1 行多い）
+    uint64_t uv_h = ((uint64_t)height + 1u) / 2u;
     uint64_t uv_bytes;
-    if (!mul_u64_ov(s, uv_h, &uv_bytes)) {
+    if (!mul_u64_ov((uint64_t)stride_uv, uv_h, &uv_bytes)) {
+        return 0;
+    }
+    return add_u64_ov(y_bytes, uv_bytes, out);
+}
+
+// I420: Rust `i420_plane_sizes`（capture.rs）と同じ Y/連結 UV バイト数
+static int required_bytes_i420(int32_t stride, int32_t stride_uv, int height, uint64_t* out) {
+    if (stride <= 0 || stride_uv <= 0 || height <= 0) {
+        return 0;
+    }
+    uint64_t y_bytes;
+    if (!mul_u64_ov((uint64_t)stride, (uint64_t)height, &y_bytes)) {
+        return 0;
+    }
+    uint64_t chroma_h = ((uint64_t)height + 1u) / 2u;
+    uint64_t uv_part;
+    if (!mul_u64_ov((uint64_t)stride_uv, chroma_h, &uv_part)) {
+        return 0;
+    }
+    uint64_t uv_bytes;
+    if (!mul_u64_ov(uv_part, 2u, &uv_bytes)) {
         return 0;
     }
     return add_u64_ov(y_bytes, uv_bytes, out);
@@ -429,8 +449,14 @@ static void on_process(void* userdata) {
         }
 
         uint64_t need = 0;
-        if (format == VIDEO_PIXEL_FORMAT_NV12 || format == VIDEO_PIXEL_FORMAT_I420) {
-            if (!required_bytes_nv12_i420_like(stride, height, &need)) {
+        if (format == VIDEO_PIXEL_FORMAT_NV12) {
+            if (!required_bytes_nv12(stride, stride, height, &need)) {
+                pw_stream_queue_buffer(session->stream, buf);
+                return;
+            }
+        } else if (format == VIDEO_PIXEL_FORMAT_I420) {
+            int stride_uv = stride / 2;
+            if (!required_bytes_i420(stride, stride_uv, height, &need)) {
                 pw_stream_queue_buffer(session->stream, buf);
                 return;
             }
