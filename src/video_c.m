@@ -465,6 +465,8 @@ void video_session_destroy(struct VideoSession* session) {
         [session->session stopRunning];
     }
 
+    // malloc した struct に載せた ObjC オブジェクトは ARC が参照カウント管理する。
+    // セッションから入出力を外してから free し、malloc 領域だけを解放する（Instruments でリーク有無を確認すること）。
     [session->session removeInput:session->input];
     [session->session removeOutput:session->output];
 
