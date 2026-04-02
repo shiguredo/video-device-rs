@@ -120,8 +120,13 @@ fn nv12_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, 
     Some((y, uv))
 }
 
-/// I420 の Y / 連結 UV のバイト長を計算する。
-/// macOS `video_c.m` の一時バッファは `uvSize = strideUV * chromaHeight * 2`（`chromaHeight = (height + 1) / 2`）。issue 0004 参照。
+/// I420 の Y / 連結 UV（U 行のあと V 行）のバイト長を計算する。
+///
+/// macOS `video_c.m` は `chromaHeight = (height + 1) / 2`、`uvSize = strideUV * chromaHeight * 2`
+/// で `calloc` し、`stride_uv` は `(int)strideUV` としてコールバックに渡す。
+/// 本関数の UV は `stride_uv * ((height + 1) / 2) * 2`（usize での切り上げ整合）であり、
+/// 偶数 `height` では `stride_uv * height` と同値、奇数 `height` では C の `uvSize` と一致する。
+/// PipeWire 等の別経路はレイアウトが異なる場合がある（issue 0004）。
 fn i420_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
     if stride <= 0 || stride_uv <= 0 || height <= 0 {
         return None;

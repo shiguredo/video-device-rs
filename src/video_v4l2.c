@@ -553,6 +553,8 @@ static void* capture_thread(void* arg) {
 
             if (session->pixel_format == V4L2_PIX_FMT_NV12) {
                 // NV12: Y プレーンと UV プレーンが連続
+                // 注意: ドライバが bytesperline > width のパディングを返す場合、実ストライドと
+                // session->width を stride に渡す現在の実装は乖離しうる（境界はドライバ mmap 長に依存）。
                 int y_size = session->width * session->height;
                 const uint8_t* uv_data = data + y_size;
 

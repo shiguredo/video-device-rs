@@ -75,6 +75,8 @@ struct VideoDevice {
         size_t strideY = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 0);
         size_t strideU = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 1);
         size_t strideV = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 2);
+        // chromaHeight は U/V の行数。Rust 側 `i420_plane_sizes` の UV バイト数は
+        // `(stride_uv as usize) * ((height + 1) / 2) * 2` であり、本 uvSize と一致する。
         size_t chromaHeight = (height + 1) / 2;
         size_t strideUV = strideU > strideV ? strideU : strideV;
         size_t uvSize = strideUV * chromaHeight * 2;
