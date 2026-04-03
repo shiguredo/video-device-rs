@@ -3,8 +3,8 @@
 //! デバイスが接続された環境でのみ実行可能。
 //! `cargo test -- --ignored` で実行する。
 
-use std::sync::mpsc::sync_channel;
 use std::sync::Once;
+use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
 use shiguredo_video_device::{
@@ -52,7 +52,9 @@ fn test_capture_frames() {
         static DROP_LOG: Once = Once::new();
         if tx.try_send(frame.to_owned()).is_err() {
             DROP_LOG.call_once(|| {
-                eprintln!("test_capture_frames: dropped frame (channel full or receiver disconnected)");
+                eprintln!(
+                    "test_capture_frames: dropped frame (channel full or receiver disconnected)"
+                );
             });
         }
     })
