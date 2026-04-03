@@ -497,5 +497,13 @@ void video_session_stop(struct VideoSession* session) {
     }
 
     [session->output setSampleBufferDelegate:nil queue:nil];
+
+    // delegate を nil にしても、既に queue 上で実行中のコールバックは完了まで走る。
+    // dispatch_sync で空ブロックを投入し、先行する全ブロックの完了を待つことで
+    // 以降 userData (CaptureContext) へのアクセスが発生しないことを保証する。
+    if (session->queue) {
+        dispatch_sync(session->queue, ^{});
+    }
+
     [session->session stopRunning];
 }
