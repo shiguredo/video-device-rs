@@ -80,7 +80,16 @@ jobs:
         run: echo %USERPROFILE%\.cargo\bin>> "%GITHUB_PATH%"
       - run: rustup update stable
       - run: cargo test --workspace
+      # macOS ではカメラキャプチャテストをスキップする。
+      # macOS の TCC (Transparency, Consent, and Control) はカメラアクセスに
+      # GUI での対話的な許可が必要であり、launchd サービスとして動作する
+      # self-hosted runner ではカメラ権限を自動的に付与する手段がない。
+      # ターミナルに権限を付与してもサービスプロセスには継承されず、
+      # システム設定のカメラ一覧にも runner バイナリを手動追加できないため、
+      # macOS ではキャプチャテストを実行しない。
+      # デバイス列挙 (device_list, device_info) は権限不要のため引き続き実行する。
       - name: Run ignored tests (device required)
+        if: runner.os != 'macOS'
         run: cargo test --workspace -- --ignored
       - name: Run device_list
         run: >
