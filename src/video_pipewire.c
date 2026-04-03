@@ -421,8 +421,6 @@ static void on_process(void* userdata) {
     }
 
     const uint8_t* data = spa_buf->datas[0].data;
-    // spa_chunk は data 上で [offset, offset+size) が有効領域（SPA のバッファ契約）
-    const uint8_t* plane = data + chunk->offset;
 
     // タイムスタンプを取得する
     int64_t timestamp_us;
@@ -480,6 +478,9 @@ static void on_process(void* userdata) {
             pw_stream_queue_buffer(session->stream, buf);
             return;
         }
+
+        // offset と size の検証を通過してからポインタ演算する
+        const uint8_t* plane = data + chunk->offset;
 
         if (format == VIDEO_PIXEL_FORMAT_NV12) {
             // NV12: Y プレーンと UV プレーンが連続
@@ -687,6 +688,14 @@ int video_session_start(struct VideoSession* session, FrameCallback callback,
         pw_properties_new(PW_KEY_MEDIA_TYPE, "Video",
                           PW_KEY_MEDIA_CATEGORY, "Capture",
                           PW_KEY_MEDIA_ROLE, "Communication", NULL);
+
+    if (!props) {
+        pw_core_disconnect(session->core);
+        session->core = NULL;
+        pw_thread_loop_unlock(session->thread_loop);
+        pw_thread_loop_stop(session->thread_loop);
+        return -4;
+    }
 
     if (session->device_id) {
         pw_properties_set(props, PW_KEY_TARGET_OBJECT,
