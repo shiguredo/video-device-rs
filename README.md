@@ -147,18 +147,6 @@ cargo run --features raw-player --example camera_preview
 cargo run --features raw-player --example camera_preview -- --resolution 1080p --fps 60
 ```
 
-## テスト
-
-```bash
-# ユニットテスト
-cargo test
-
-# デバイス接続環境での integration test
-cargo test -- --ignored
-```
-
-`#[ignore]` 付きテストはビデオデバイスが接続された環境でのみ実行可能です。CI では self-hosted runner 上で実行されます。
-
 ## ライセンス
 
 Apache License 2.0
