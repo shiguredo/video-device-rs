@@ -31,7 +31,7 @@ name = "camera_preview"
 
 [dev-dependencies]
 nojson = "0.3"
-raw_player = "=2026.1.0-canary.3"
+raw_player = "=2026.1.0"
 
 [build-dependencies]
 bindgen = "0.72"
