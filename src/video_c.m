@@ -320,6 +320,29 @@ const struct VideoFormatEntry* video_device_get_format(struct VideoDevice* devic
 struct VideoSession* video_session_create(const char* device_id, int width,
                                           int height, int fps,
                                           uint32_t requested_pixel_format) {
+    // カメラアクセス権限を確認する。未認可の場合はフレームが配信されないため
+    // セッション作成前にエラーを返す
+    AVAuthorizationStatus authStatus =
+        [AVCaptureDevice authorizationStatusForMediaType:AVMediaTypeVideo];
+    if (authStatus == AVAuthorizationStatusDenied ||
+        authStatus == AVAuthorizationStatusRestricted) {
+        return NULL;
+    }
+    if (authStatus == AVAuthorizationStatusNotDetermined) {
+        // 権限が未決定の場合、同期的に要求する
+        dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+        __block BOOL granted = NO;
+        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo
+                                 completionHandler:^(BOOL result) {
+            granted = result;
+            dispatch_semaphore_signal(sema);
+        }];
+        dispatch_semaphore_wait(sema, DISPATCH_TIME_FOREVER);
+        if (!granted) {
+            return NULL;
+        }
+    }
+
     AVCaptureDevice* device = nil;
 
     if (device_id) {
