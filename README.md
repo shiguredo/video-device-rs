@@ -120,6 +120,45 @@ capture.start()?;
 capture.stop();
 ```
 
+## サンプル
+
+### デバイス一覧
+
+デバイス一覧を JSON で出力する。
+
+```bash
+cargo run --example device_list
+```
+
+### デバイス情報
+
+デバイスごとのフォーマット詳細と統計情報を JSON で出力する。
+
+```bash
+cargo run --example device_info
+```
+
+### カメラプレビュー
+
+カメラ映像をキャプチャして raw-player でプレビュー表示する。`raw-player` feature が必要。
+
+```bash
+cargo run --features raw-player --example camera_preview
+cargo run --features raw-player --example camera_preview -- --resolution 1080p --fps 60
+```
+
+## テスト
+
+```bash
+# ユニットテスト
+cargo test
+
+# デバイス接続環境での integration test
+cargo test -- --ignored
+```
+
+`#[ignore]` 付きテストはビデオデバイスが接続された環境でのみ実行可能です。CI では self-hosted runner 上で実行されます。
+
 ## ライセンス
 
 Apache License 2.0
