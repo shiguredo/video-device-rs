@@ -133,7 +133,7 @@ fn i420_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, 
     }
     let h = height as usize;
     let y = (stride as usize).checked_mul(h)?;
-    let chroma_h = (h + 1) / 2;
+    let chroma_h = h.div_ceil(2);
     let uv = (stride_uv as usize).checked_mul(chroma_h)?.checked_mul(2)?;
     Some((y, uv))
 }
