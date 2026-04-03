@@ -607,7 +607,10 @@ unsafe fn process_sample(
             }
         };
 
-        (context.callback)(frame);
+        // ユーザコールバックが panic しても Unlock を確実に実行する
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            (context.callback)(frame);
+        }));
 
         let _ = buffer.Unlock();
     }

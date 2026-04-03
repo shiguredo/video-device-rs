@@ -470,7 +470,12 @@ static void on_process(void* userdata) {
             return;
         }
 
-        // 壊れたメタデータで plane から need バイト読むと chunk の有効範囲を超える場合はコールバックしない
+        // 壊れたメタデータで offset や size が不正な場合にバッファ外読みを防ぐ
+        uint32_t maxsize = spa_buf->datas[0].maxsize;
+        if (chunk->offset > maxsize || need > maxsize - chunk->offset) {
+            pw_stream_queue_buffer(session->stream, buf);
+            return;
+        }
         if (chunk->size == 0 || need > (uint64_t)chunk->size) {
             pw_stream_queue_buffer(session->stream, buf);
             return;

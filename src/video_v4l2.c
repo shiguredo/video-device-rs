@@ -561,12 +561,22 @@ static void* capture_thread(void* arg) {
 
         if (session->callback) {
             const uint8_t* data = (const uint8_t*)session->buffers[buf.index].start;
+            size_t mmap_len = session->buffers[buf.index].length;
+            // bytesused が 0 の場合はドライバ不具合とみなしてスキップ
+            uint32_t used = buf.bytesused;
+            // 有効データ長は mmap 長と bytesused の小さい方で制限する
+            size_t available = (used > 0 && (size_t)used < mmap_len) ? (size_t)used : mmap_len;
 
             if (session->pixel_format == V4L2_PIX_FMT_NV12) {
                 // NV12: Y プレーンと UV プレーンが連続
-                // 注意: ドライバが bytesperline > width のパディングを返す場合、実ストライドと
-                // session->width を stride に渡す現在の実装は乖離しうる（境界はドライバ mmap 長に依存）。
-                int y_size = session->width * session->height;
+                size_t y_size = (size_t)session->width * (size_t)session->height;
+                // UV 行数は height/2 切り上げ
+                size_t uv_h = ((size_t)session->height + 1u) / 2u;
+                size_t uv_size = (size_t)session->width * uv_h;
+                size_t need = y_size + uv_size;
+                if (need > available) {
+                    goto requeue;
+                }
                 const uint8_t* uv_data = data + y_size;
 
                 session->callback(session->user_data, data, uv_data, session->width,
@@ -574,12 +584,17 @@ static void* capture_thread(void* arg) {
                                   VIDEO_PIXEL_FORMAT_NV12, timestamp_us, NULL);
             } else if (session->pixel_format == V4L2_PIX_FMT_YUYV) {
                 // YUY2: パックドフォーマット
+                size_t need = (size_t)session->width * 2 * (size_t)session->height;
+                if (need > available) {
+                    goto requeue;
+                }
                 session->callback(session->user_data, data, NULL, session->width, session->height,
                                   session->width * 2, 0, VIDEO_PIXEL_FORMAT_YUY2, timestamp_us,
                                   NULL);
             }
         }
 
+requeue:
         // バッファをキューに戻す
         if (xioctl(session->fd, VIDIOC_QBUF, &buf) < 0) {
             break;
