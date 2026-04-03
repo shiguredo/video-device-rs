@@ -78,6 +78,8 @@ jobs:
         run: echo %USERPROFILE%\.cargo\bin>> "%GITHUB_PATH%"
       - run: rustup update stable
       - run: cargo test --workspace
+      - name: Run ignored tests (device required)
+        run: cargo test --workspace -- --ignored
       - name: Run device_list
         run: >
           cargo run --example device_list | jq -e
