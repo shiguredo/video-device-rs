@@ -1,11 +1,10 @@
 # video-device-rs
 
-[![shiguredo_video_device](https://img.shields.io/crates/v/shiguredo_video_device.svg)](https://crates.io/crates/shiguredo_video_device)
-[![Documentation](https://docs.rs/shiguredo_video_device/badge.svg)](https://docs.rs/shiguredo_video_device)
+[![crates.io](https://img.shields.io/crates/v/shiguredo_video_device.svg)](https://crates.io/crates/shiguredo_video_device)
+[![docs.rs](https://docs.rs/shiguredo_video_device/badge.svg)](https://docs.rs/shiguredo_video_device)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-
-> [!WARNING]
-> このライブラリは開発中であり、仕様が積極的に変更される場合があります。
+[![GitHub Actions](https://github.com/shiguredo/video-device-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/shiguredo/video-device-rs/actions/workflows/ci.yml)
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?logo=discord&logoColor=white)](https://discord.gg/shiguredo)
 
 ## About Shiguredo's open source software
 
