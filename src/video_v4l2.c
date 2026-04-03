@@ -554,6 +554,11 @@ static void* capture_thread(void* arg) {
         int64_t timestamp_us =
             (int64_t)buf.timestamp.tv_sec * 1000000 + (int64_t)buf.timestamp.tv_usec;
 
+        // ドライバが不正な index を返した場合の防御
+        if (buf.index >= session->buffer_count) {
+            break;
+        }
+
         if (session->callback) {
             const uint8_t* data = (const uint8_t*)session->buffers[buf.index].start;
 

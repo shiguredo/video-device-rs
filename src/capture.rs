@@ -238,7 +238,11 @@ extern "C" fn frame_callback(
         PixelFormat::Unknown(_) => return,
     };
 
-    (context.callback)(frame);
+    // SAFETY: ユーザコールバックが panic すると extern "C" 境界を越えて
+    // unwind し未定義動作になるため、catch_unwind で防ぐ
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (context.callback)(frame);
+    }));
 }
 
 #[cfg(test)]

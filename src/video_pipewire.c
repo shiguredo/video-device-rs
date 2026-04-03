@@ -401,7 +401,7 @@ static void on_process(void* userdata) {
     }
 
     struct spa_buffer* spa_buf = buf->buffer;
-    if (!spa_buf->datas[0].data) {
+    if (spa_buf->n_datas == 0 || !spa_buf->datas[0].data) {
         pw_stream_queue_buffer(session->stream, buf);
         return;
     }
