@@ -3,37 +3,46 @@ name = "shiguredo_video_device"
 version = "2026.1.0"
 edition = "2024"
 rust-version = "1.88"
-authors = ["Shiguredo Inc."]
-license = "Apache-2.0"
 description = "Cross-platform video device library"
+readme = "README.md"
 homepage = "https://github.com/shiguredo/video-device-rs"
 repository = "https://github.com/shiguredo/video-device-rs"
-readme = "README.md"
+license = "Apache-2.0"
 build = "build.rs"
-include = ["/src/**", "/build.rs", "/LICENSE", "/README.md"]
-
-[dependencies]
-
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = [
-    "Win32_Media_MediaFoundation",
-    "Win32_System_Com",
-    "Win32_Foundation",
-] }
-
-[features]
-default = ["v4l2"]
-v4l2 = []
-pipewire = []
+include = ["/LICENSE", "/README.md", "/build.rs", "/src/**"]
 
 [[example]]
 name = "camera_preview"
 
+# 依存を最小化する方針のため、ランタイム依存は持たない
+[dependencies]
+
 [dev-dependencies]
+# 依存ゼロの軽量 JSON パーサ／シリアライザ。サンプル用途で利用
 nojson = "0.3"
+# camera_preview サンプルで生フレームを表示するためのプレビュー用クレート
 raw_player = "=2026.1.0"
 
 [build-dependencies]
+# C/C++ ヘッダから Rust の FFI バインディングを自動生成する
 bindgen = "0.72"
-cc = "1"
+# build.rs から C/C++ コードをコンパイルしてリンクするためのヘルパ
+cc = "1.2"
+# Linux などで pkg-config を介してシステムライブラリ (V4L2 等) を検出する
 pkg-config = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+# Microsoft 公式の Win32 API バインディング。必要な機能だけを feature で有効化する
+windows = { version = "0.62", features = [
+  # HRESULT・HANDLE・BOOL などの Win32 基本型
+  "Win32_Foundation",
+  # Media Foundation のカメラキャプチャ関連 API
+  "Win32_Media_MediaFoundation",
+  # COM の初期化・インターフェース呼び出し基盤
+  "Win32_System_Com",
+] }
+
+[features]
+default = ["v4l2"]
+pipewire = []
+v4l2 = []
