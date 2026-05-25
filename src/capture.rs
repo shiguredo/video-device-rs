@@ -160,7 +160,7 @@ extern "C" fn frame_callback(
         return;
     }
 
-    // SAFETY: user_data は Arc<CaptureContext> から取得したポインタ
+    // SAFETY: user_data は Box<CaptureContext> から取得したポインタ
     // context の生存期間は VideoCapture によって保証される
     let context = unsafe { &*(user_data as *const CaptureContext) };
 
