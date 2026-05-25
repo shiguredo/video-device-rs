@@ -460,6 +460,9 @@ fn capture_thread_func(
 
 /// NV12 連続バッファに必要な Y+UV バイト数。
 fn nv12_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
+    if (width <= 0 || height <= 0) {
+        return None;
+    }
     let y = (width as usize).checked_mul(height as usize)?;
     y.checked_add(y / 2)
 }
@@ -471,6 +474,9 @@ fn i420_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
 
 /// YUY2 の 1 フレーム分のバイト数。
 fn yuy2_packed_frame_bytes_win(width: i32, height: i32) -> Option<usize> {
+    if (width <= 0 || height <= 0) {
+        return None;
+    }
     let stride = width.checked_mul(2)?;
     (stride as usize).checked_mul(height as usize)
 }
