@@ -17,6 +17,8 @@
   - @melpon
 - [FIX] V4L2 バックエンドで I420 フォーマットの場合にコールバックが発生しないのを修正する
   - @melpon
+- [FIX] macOS の VideoSession のメンバーがリークしていたのを修正する
+  - @melpon
 
 ### misc
 
