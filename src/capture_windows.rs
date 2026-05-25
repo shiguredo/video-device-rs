@@ -229,7 +229,10 @@ unsafe fn activate_device(device_id: Option<&str>) -> Result<IMFMediaSource> {
             return Err(Error::DeviceNotFound);
         }
 
-        let _devices_guard = CoTaskMemActivateArrayGuard { ptr: devices_ptr };
+        let _devices_guard = CoTaskMemActivateArrayGuard {
+            ptr: devices_ptr,
+            count,
+        };
 
         let device_slice = std::slice::from_raw_parts(devices_ptr, count as usize);
 

@@ -188,7 +188,10 @@ unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
         let mut devices = Vec::new();
 
         if count > 0 && !devices_ptr.is_null() {
-            let _devices_guard = CoTaskMemActivateArrayGuard { ptr: devices_ptr };
+            let _devices_guard = CoTaskMemActivateArrayGuard {
+                ptr: devices_ptr,
+                count,
+            };
 
             let device_slice = std::slice::from_raw_parts(devices_ptr, count as usize);
 

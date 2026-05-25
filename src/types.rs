@@ -320,6 +320,7 @@ impl Drop for CoInitGuard {
 #[cfg(target_os = "windows")]
 pub(crate) struct CoTaskMemActivateArrayGuard {
     pub(crate) ptr: *mut Option<windows::Win32::Media::MediaFoundation::IMFActivate>,
+    pub(crate) count: u32,
 }
 
 #[cfg(target_os = "windows")]
@@ -327,6 +328,9 @@ impl Drop for CoTaskMemActivateArrayGuard {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
             unsafe {
+                for i in 0..self.count as usize {
+                    std::ptr::drop_in_place(self.ptr.add(i));
+                }
                 windows::Win32::System::Com::CoTaskMemFree(Some(self.ptr as *const _));
             }
         }

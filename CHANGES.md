@@ -19,6 +19,8 @@
   - @melpon
 - [FIX] macOS の VideoSession のメンバーがリークしていたのを修正する
   - @melpon
+- [FIX] Windows の IMFActivate がリークしていたのを修正する
+  - @melpon
 
 ### misc
 
