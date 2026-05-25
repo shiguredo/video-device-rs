@@ -13,6 +13,8 @@
 
 - [FIX] `VideoCapture`, `PixelBuffer` はスレッドセーフな構造体ではないので Sync を削除する
   - @melpon
+- [FIX] V4L2 バックエンドで I420 フォーマットの場合にコールバックが発生しないのを修正する
+  - @melpon
 
 ### misc
 

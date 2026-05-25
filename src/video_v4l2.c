@@ -583,6 +583,20 @@ static void* capture_thread(void* arg) {
                 session->callback(session->user_data, data, uv_data, session->width,
                                   session->height, session->width, session->width,
                                   VIDEO_PIXEL_FORMAT_NV12, timestamp_us, NULL);
+            } else if (session->pixel_format == V4L2_PIX_FMT_YUV420) {
+                // YUV420: Y, U, V プレーンが連続
+                size_t y_size = (size_t)session->width * (size_t)session->height;
+                size_t chroma_h = ((size_t)session->height + 1u) / 2u;
+                int stride_uv = (session->width + 1) / 2;
+                size_t uv_total = (size_t)stride_uv * chroma_h * 2u;
+                size_t need = y_size + uv_total;
+                if (need > available) {
+                    goto requeue;
+                }
+                const uint8_t* uv_data = data + y_size;
+                session->callback(session->user_data, data, uv_data, session->width,
+                                session->height, session->width, stride_uv,
+                                VIDEO_PIXEL_FORMAT_I420, timestamp_us, NULL);
             } else if (session->pixel_format == V4L2_PIX_FMT_YUYV) {
                 // YUY2: パックドフォーマット
                 size_t need = (size_t)session->width * 2 * (size_t)session->height;
