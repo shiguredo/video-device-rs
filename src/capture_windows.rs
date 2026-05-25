@@ -374,7 +374,7 @@ unsafe fn get_configured_format(
             .map_err(|_| Error::SessionCreateFailed)?;
 
         let pixel_format =
-            guid_to_pixel_format(&subtype).ok_or_else(|| Error::SessionCreateFailed)?;
+            guid_to_pixel_format(&subtype).ok_or(Error::SessionCreateFailed)?;
 
         // フレームサイズを取得
         let frame_size: u64 = media_type
