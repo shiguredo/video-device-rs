@@ -2,25 +2,10 @@
 
 use std::ptr;
 
-use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUID};
+use windows::{Win32::Media::MediaFoundation::*, core::GUID};
 
 use crate::error::{Error, Result};
-use crate::types::{PixelFormat, VideoFormat, CoInitGuard};
-
-/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
-struct CoTaskMemActivateArrayGuard {
-    ptr: *mut Option<IMFActivate>,
-}
-
-impl Drop for CoTaskMemActivateArrayGuard {
-    fn drop(&mut self) {
-        if !self.ptr.is_null() {
-            unsafe {
-                CoTaskMemFree(Some(self.ptr as *const _));
-            }
-        }
-    }
-}
+use crate::types::{PixelFormat, VideoFormat, CoInitGuard, CoTaskMemActivateArrayGuard};
 
 /// ビデオデバイス
 pub struct VideoDevice {

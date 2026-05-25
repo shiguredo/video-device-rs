@@ -313,3 +313,20 @@ impl Drop for CoInitGuard {
         unsafe { windows::Win32::System::Com::CoUninitialize(); }
     }
 }
+
+/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
+#[cfg(target_os = "windows")]
+pub(crate) struct CoTaskMemActivateArrayGuard {
+    pub(crate) ptr: *mut Option<windows::Win32::Media::MediaFoundation::IMFActivate>,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for CoTaskMemActivateArrayGuard {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                windows::Win32::System::Com::CoTaskMemFree(Some(self.ptr as *const _));
+            }
+        }
+    }
+}

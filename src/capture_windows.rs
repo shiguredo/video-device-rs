@@ -6,10 +6,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUID};
+use windows::{Win32::Media::MediaFoundation::*, core::GUID};
 
 use crate::error::{Error, Result};
-use crate::types::{PixelFormat, VideoCaptureConfig, VideoFrame, CoInitGuard};
+use crate::types::{PixelFormat, VideoCaptureConfig, VideoFrame, CoInitGuard, CoTaskMemActivateArrayGuard };
 
 /// Send でない型をスレッドに渡すためのラッパー（MTA で初期化済みのため安全）
 struct SendPtr<T>(T);
@@ -36,21 +36,6 @@ impl Drop for MfShutdownGuard {
         if self.active {
             unsafe {
                 let _ = MFShutdown();
-            }
-        }
-    }
-}
-
-/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する（activate_device 専用）。
-struct CoTaskMemActivateArrayGuard {
-    ptr: *mut Option<IMFActivate>,
-}
-
-impl Drop for CoTaskMemActivateArrayGuard {
-    fn drop(&mut self) {
-        if !self.ptr.is_null() {
-            unsafe {
-                CoTaskMemFree(Some(self.ptr as *const _));
             }
         }
     }
