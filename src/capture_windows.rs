@@ -9,7 +9,10 @@ use std::time::Duration;
 use windows::{Win32::Media::MediaFoundation::*, core::GUID};
 
 use crate::error::{Error, Result};
-use crate::types::{PixelFormat, VideoCaptureConfig, VideoFrame, CoInitGuard, CoTaskMemActivateArrayGuard };
+use crate::types::{
+    CoInitGuard, CoTaskMemActivateArrayGuard, PixelFormat, VideoCaptureConfig, VideoFrame,
+    guid_to_pixel_format, pixel_format_to_guid,
+};
 
 /// Send でない型をスレッドに渡すためのラッパー（MTA で初期化済みのため安全）
 struct SendPtr<T>(T);
@@ -167,8 +170,7 @@ impl VideoCapture {
     }
 
     pub fn stop(&mut self) {
-        if self.running.load(Ordering::Acquire)
-        {
+        if self.running.load(Ordering::Acquire) {
             self.running.store(false, Ordering::Release);
 
             // スレッドの終了を待機
@@ -319,15 +321,6 @@ unsafe fn create_source_reader(
     }
 }
 
-fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<GUID> {
-    match pixel_format {
-        PixelFormat::Nv12 => Some(MFVideoFormat_NV12),
-        PixelFormat::Yuy2 => Some(MFVideoFormat_YUY2),
-        PixelFormat::I420 => Some(MFVideoFormat_I420),
-        PixelFormat::Unknown(_) => None,
-    }
-}
-
 /// 指定されたフォーマットを設定
 unsafe fn try_set_format(
     source_reader: &IMFSourceReader,
@@ -380,15 +373,8 @@ unsafe fn get_configured_format(
             .GetGUID(&MF_MT_SUBTYPE)
             .map_err(|_| Error::SessionCreateFailed)?;
 
-        let pixel_format = if subtype == MFVideoFormat_NV12 {
-            PixelFormat::Nv12
-        } else if subtype == MFVideoFormat_YUY2 {
-            PixelFormat::Yuy2
-        } else if subtype == MFVideoFormat_I420 {
-            PixelFormat::I420
-        } else {
-            PixelFormat::Unknown(subtype.data1)
-        };
+        let pixel_format =
+            guid_to_pixel_format(&subtype).ok_or_else(|| Error::SessionCreateFailed)?;
 
         // フレームサイズを取得
         let frame_size: u64 = media_type
@@ -441,7 +427,14 @@ fn capture_thread_func(
                 // タイムスタンプを 100ns 単位からマイクロ秒に変換
                 let timestamp_us = timestamp / 10;
 
-                process_sample(&sample, pixel_format, width, height, timestamp_us, &callback);
+                process_sample(
+                    &sample,
+                    pixel_format,
+                    width,
+                    height,
+                    timestamp_us,
+                    &callback,
+                );
             }
         }
     }

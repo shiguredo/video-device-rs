@@ -310,7 +310,9 @@ impl CoInitGuard {
 #[cfg(target_os = "windows")]
 impl Drop for CoInitGuard {
     fn drop(&mut self) {
-        unsafe { windows::Win32::System::Com::CoUninitialize(); }
+        unsafe {
+            windows::Win32::System::Com::CoUninitialize();
+        }
     }
 }
 
@@ -328,5 +330,30 @@ impl Drop for CoTaskMemActivateArrayGuard {
                 windows::Win32::System::Com::CoTaskMemFree(Some(self.ptr as *const _));
             }
         }
+    }
+}
+
+/// Media Foundation GUID を PixelFormat に変換
+#[cfg(target_os = "windows")]
+pub fn guid_to_pixel_format(guid: &windows::core::GUID) -> Option<PixelFormat> {
+    if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12 {
+        Some(PixelFormat::Nv12)
+    } else if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_YUY2 {
+        Some(PixelFormat::Yuy2)
+    } else if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_I420 {
+        Some(PixelFormat::I420)
+    } else {
+        None
+    }
+}
+
+/// PixelFormat を Media Foundation GUID に変換
+#[cfg(target_os = "windows")]
+pub fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<windows::core::GUID> {
+    match pixel_format {
+        PixelFormat::Nv12 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12),
+        PixelFormat::Yuy2 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_YUY2),
+        PixelFormat::I420 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_I420),
+        PixelFormat::Unknown(_) => None,
     }
 }

@@ -5,7 +5,7 @@ use std::ptr;
 use windows::{Win32::Media::MediaFoundation::*, core::GUID};
 
 use crate::error::{Error, Result};
-use crate::types::{PixelFormat, VideoFormat, CoInitGuard, CoTaskMemActivateArrayGuard};
+use crate::types::{CoInitGuard, CoTaskMemActivateArrayGuard, VideoFormat, guid_to_pixel_format};
 
 /// ビデオデバイス
 pub struct VideoDevice {
@@ -70,19 +70,6 @@ impl<'a> IntoIterator for &'a VideoDeviceList {
 
     fn into_iter(self) -> Self::IntoIter {
         self.devices.iter()
-    }
-}
-
-/// Media Foundation GUID を PixelFormat に変換
-fn guid_to_pixel_format(guid: &GUID) -> Option<PixelFormat> {
-    if *guid == MFVideoFormat_NV12 {
-        Some(PixelFormat::Nv12)
-    } else if *guid == MFVideoFormat_YUY2 {
-        Some(PixelFormat::Yuy2)
-    } else if *guid == MFVideoFormat_I420 {
-        Some(PixelFormat::I420)
-    } else {
-        None
     }
 }
 
