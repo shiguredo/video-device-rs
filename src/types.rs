@@ -152,7 +152,7 @@ impl Eq for PixelBuffer {}
 unsafe impl Send for PixelBuffer {}
 
 /// ビデオデバイスが対応するフォーマット
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VideoFormat {
     /// 幅
     pub width: i32,
@@ -172,6 +172,7 @@ pub struct VideoFormat {
 /// **Linux（PipeWire 等）** では不正値を C 側が既定解像度・フレームレートに置き換える場合があるため、Rust 側では拒否しない。
 ///
 /// ネゴシエーション結果が未知のピクセルフォーマットになる場合の挙動は、バックエンド（macOS / V4L2 / PipeWire / Windows）により異なりうる。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoCaptureConfig {
     /// デバイス ID (None の場合はデフォルトデバイス)
     pub device_id: Option<String>,
@@ -200,6 +201,7 @@ impl Default for VideoCaptureConfig {
 /// キャプチャされたビデオフレームの生データ（借用）。
 ///
 /// `data` および `uv_data` が指すメモリの寿命は、ユーザに渡したコールバックの呼び出し中に限る。
+#[derive(Debug)]
 pub struct VideoFrame<'a> {
     /// Y プレーンまたはインターリーブデータ
     pub data: &'a [u8],
