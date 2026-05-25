@@ -453,7 +453,7 @@ static void on_process(void* userdata) {
                 return;
             }
         } else if (format == VIDEO_PIXEL_FORMAT_I420) {
-            int stride_uv = stride / 2;
+            int stride_uv = (stride + 1) / 2;
             if (!required_bytes_i420(stride, stride_uv, height, &need)) {
                 pw_stream_queue_buffer(session->stream, buf);
                 return;
@@ -500,7 +500,7 @@ static void on_process(void* userdata) {
             // I420: Y, U, V が連続
             uint64_t y_bytes = (uint64_t)stride * (uint64_t)height;
             const uint8_t* uv_data = plane + y_bytes;
-            int stride_uv = stride / 2;
+            int stride_uv = (stride + 1) / 2;
 
             session->callback(session->user_data, plane, uv_data, width,
                               height, stride, stride_uv,

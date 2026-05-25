@@ -464,7 +464,8 @@ fn nv12_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
         return None;
     }
     let y = (width as usize).checked_mul(height as usize)?;
-    y.checked_add(y / 2)
+    let uv = (width as usize).checked_mul(((height as usize) + 1) / 2)?;
+    y.checked_add(uv)
 }
 
 /// I420 連結 Y+U+V に必要なバイト数（Y + U + V の合計が Y+Y/2 になる標準レイアウト）。
@@ -575,7 +576,7 @@ unsafe fn process_sample(
                     width,
                     height,
                     stride: width,
-                    stride_uv: width / 2,
+                    stride_uv: (width + 1) / 2,
                     pixel_format,
                     timestamp_us,
                     pixel_buffer: None,
