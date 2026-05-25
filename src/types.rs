@@ -1,7 +1,5 @@
 use std::ffi::c_void;
 use std::fmt;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-use std::sync::atomic::AtomicBool;
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
