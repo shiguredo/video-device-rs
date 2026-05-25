@@ -564,9 +564,12 @@ static void* capture_thread(void* arg) {
             const uint8_t* data = (const uint8_t*)session->buffers[buf.index].start;
             size_t mmap_len = session->buffers[buf.index].length;
             // bytesused が 0 の場合はドライバ不具合とみなしてスキップ
+            if (buf.bytesused == 0) {
+                goto requeue;
+            }
             uint32_t used = buf.bytesused;
             // 有効データ長は mmap 長と bytesused の小さい方で制限する
-            size_t available = (used > 0 && (size_t)used < mmap_len) ? (size_t)used : mmap_len;
+            size_t available = (size_t)used < mmap_len ? (size_t)used : mmap_len;
 
             if (session->pixel_format == V4L2_PIX_FMT_NV12) {
                 // NV12: Y プレーンと UV プレーンが連続
