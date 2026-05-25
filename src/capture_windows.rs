@@ -201,8 +201,6 @@ impl Drop for VideoCapture {
     }
 }
 
-unsafe impl Send for VideoCapture {}
-
 /// デバイスをアクティベート
 unsafe fn activate_device(device_id: Option<&str>) -> Result<IMFMediaSource> {
     unsafe {
