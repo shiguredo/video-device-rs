@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <linux/videodev2.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,7 +39,7 @@ struct VideoSession {
     FrameCallback callback;
     void* user_data;
     pthread_t thread;
-    volatile int running;
+    atomic_int running;
 };
 
 static int xioctl(int fd, unsigned long request, void* arg) {
@@ -484,7 +485,7 @@ struct VideoSession* video_session_create(const char* device_id, int width,
     session->width = fmt.fmt.pix.width;
     session->height = fmt.fmt.pix.height;
     session->pixel_format = pixel_format;
-    session->running = 0;
+    atomic_init(&session->running, 0);
 
     if (init_mmap(session) < 0) {
         close(fd);
@@ -500,7 +501,7 @@ void video_session_destroy(struct VideoSession* session) {
         return;
     }
 
-    if (session->running) {
+    if (atomic_load(&session->running)) {
         video_session_stop(session);
     }
 
@@ -516,7 +517,7 @@ void video_session_destroy(struct VideoSession* session) {
 static void* capture_thread(void* arg) {
     struct VideoSession* session = (struct VideoSession*)arg;
 
-    while (session->running) {
+    while (atomic_load(&session->running)) {
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(session->fd, &fds);
@@ -609,7 +610,7 @@ int video_session_start(struct VideoSession* session, FrameCallback callback, vo
         return -1;
     }
 
-    if (session->running) {
+    if (atomic_load(&session->running)) {
         return 0;
     }
 
@@ -635,11 +636,11 @@ int video_session_start(struct VideoSession* session, FrameCallback callback, vo
         return -1;
     }
 
-    session->running = 1;
+    atomic_store(&session->running, 1);
 
     // キャプチャスレッドを開始
     if (pthread_create(&session->thread, NULL, capture_thread, session) != 0) {
-        session->running = 0;
+        atomic_store(&session->running, 0);
         xioctl(session->fd, VIDIOC_STREAMOFF, &type);
         return -1;
     }
@@ -648,11 +649,11 @@ int video_session_start(struct VideoSession* session, FrameCallback callback, vo
 }
 
 void video_session_stop(struct VideoSession* session) {
-    if (!session || !session->running) {
+    if (!session || !atomic_load(&session->running)) {
         return;
     }
 
-    session->running = 0;
+    atomic_store(&session->running, 0);
 
     pthread_join(session->thread, NULL);
 
