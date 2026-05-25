@@ -9,7 +9,7 @@ use std::time::Duration;
 use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUID};
 
 use crate::error::{Error, Result};
-use crate::types::{PixelFormat, VideoCaptureConfig, VideoFrame};
+use crate::types::{PixelFormat, VideoCaptureConfig, VideoFrame, CoInitGuard};
 
 /// Send でない型をスレッドに渡すためのラッパー（MTA で初期化済みのため安全）
 struct SendPtr<T>(T);
@@ -75,6 +75,7 @@ pub struct VideoCapture {
     callback: Option<Box<VideoFrameCallback>>,
     capture_thread: Option<thread::JoinHandle<()>>,
     config: VideoCaptureConfig,
+    _com_guard: CoInitGuard,
 }
 
 fn validate_capture_config_for_windows(config: &VideoCaptureConfig) -> Result<()> {
@@ -98,8 +99,7 @@ impl VideoCapture {
         validate_capture_config_for_windows(&config)?;
 
         unsafe {
-            // COM 初期化 (既に初期化済みの場合も許容する)
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let com_guard = CoInitGuard::new()?;
 
             // Media Foundation 初期化
             MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::SessionCreateFailed)?;
@@ -142,6 +142,7 @@ impl VideoCapture {
                 callback: Some(callback),
                 capture_thread: None,
                 config,
+                _com_guard: com_guard,
             })
         }
     }
@@ -425,10 +426,12 @@ fn capture_thread_func(
     running: Arc<AtomicBool>,
     callback: Box<VideoFrameCallback>,
 ) {
-    unsafe {
-        // スレッドでも COM 初期化
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    let _com_guard = match CoInitGuard::new() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
 
+    unsafe {
         while running.load(Ordering::Acquire) {
             let mut flags: u32 = 0;
             let mut timestamp: i64 = 0;
@@ -456,8 +459,6 @@ fn capture_thread_func(
                 process_sample(&sample, pixel_format, width, height, timestamp_us, &callback);
             }
         }
-
-        CoUninitialize();
     }
 }
 

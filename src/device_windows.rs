@@ -5,7 +5,7 @@ use std::ptr;
 use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUID};
 
 use crate::error::{Error, Result};
-use crate::types::{PixelFormat, VideoFormat};
+use crate::types::{PixelFormat, VideoFormat, CoInitGuard};
 
 /// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
 struct CoTaskMemActivateArrayGuard {
@@ -177,8 +177,7 @@ fn get_device_formats(activate: &IMFActivate) -> Vec<VideoFormat> {
 /// デバイスを列挙
 fn enumerate_devices_internal() -> Result<Vec<VideoDevice>> {
     unsafe {
-        // 列挙用にこのスレッドで COM を初期化する。対称の CoUninitialize は呼ばない（スレッドの参照カウントとアプリ方針に合わせる）。
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let _com_guard = CoInitGuard::new()?;
 
         // MFStartup が失敗した場合は参照カウントを増やしていないため MFShutdown は呼ばない（MSDN の初期化契約に従う）。
         MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::DeviceAccessDenied)?;

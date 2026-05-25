@@ -285,3 +285,31 @@ pub(crate) struct CaptureContext {
     pub(crate) callback: Box<dyn Fn(VideoFrame<'_>) + Send + 'static>,
     pub(crate) running: AtomicBool,
 }
+
+/// CoInitializeEx / CoUninitialize を対で呼び出す RAII ガード
+#[cfg(target_os = "windows")]
+pub(crate) struct CoInitGuard;
+
+#[cfg(target_os = "windows")]
+impl CoInitGuard {
+    #[allow(clippy::new_ret_no_self)]
+    pub(crate) fn new() -> crate::Result<Self> {
+        let result = unsafe {
+            windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            )
+        };
+        if result.is_err() {
+            return Err(crate::Error::ComInitFailed);
+        }
+        Ok(Self)
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for CoInitGuard {
+    fn drop(&mut self) {
+        unsafe { windows::Win32::System::Com::CoUninitialize(); }
+    }
+}
