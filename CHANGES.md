@@ -11,6 +11,8 @@
 
 ## develop
 
+- [FIX] `VideoCapture`, `PixelBuffer` はスレッドセーフな構造体ではないので Sync を削除する
+  - @melpon
 
 ### misc
 

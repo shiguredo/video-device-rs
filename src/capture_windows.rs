@@ -90,7 +90,7 @@ fn validate_capture_config_for_windows(config: &VideoCaptureConfig) -> Result<()
 impl VideoCapture {
     pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
-        F: Fn(VideoFrame<'_>) + Send + Sync + 'static,
+        F: Fn(VideoFrame<'_>) + Send + 'static,
     {
         validate_capture_config_for_windows(&config)?;
 
@@ -212,7 +212,6 @@ impl Drop for VideoCapture {
 }
 
 unsafe impl Send for VideoCapture {}
-unsafe impl Sync for VideoCapture {}
 
 /// デバイスをアクティベート
 unsafe fn activate_device(device_id: Option<&str>) -> Result<IMFMediaSource> {

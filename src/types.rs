@@ -149,7 +149,6 @@ impl Eq for PixelBuffer {}
 
 // Core Foundation の参照カウントはスレッドセーフで、保持しているのは不透明ポインタのみ。
 unsafe impl Send for PixelBuffer {}
-unsafe impl Sync for PixelBuffer {}
 
 /// ビデオデバイスが対応するフォーマット
 #[derive(Debug, Clone)]
@@ -281,6 +280,6 @@ impl VideoFrameOwned {
 }
 
 pub(crate) struct CaptureContext {
-    pub(crate) callback: Box<dyn Fn(VideoFrame<'_>) + Send + Sync>,
+    pub(crate) callback: Box<dyn Fn(VideoFrame<'_>) + Send>,
     pub(crate) running: AtomicBool,
 }

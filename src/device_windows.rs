@@ -51,9 +51,6 @@ impl VideoDevice {
     }
 }
 
-unsafe impl Send for VideoDevice {}
-unsafe impl Sync for VideoDevice {}
-
 /// ビデオデバイスリスト
 pub struct VideoDeviceList {
     devices: Vec<VideoDevice>,
@@ -90,9 +87,6 @@ impl<'a> IntoIterator for &'a VideoDeviceList {
         self.devices.iter()
     }
 }
-
-unsafe impl Send for VideoDeviceList {}
-unsafe impl Sync for VideoDeviceList {}
 
 /// Media Foundation GUID を PixelFormat に変換
 fn guid_to_pixel_format(guid: &GUID) -> Option<PixelFormat> {

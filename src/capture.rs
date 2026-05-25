@@ -16,7 +16,7 @@ pub struct VideoCapture {
 impl VideoCapture {
     pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
-        F: Fn(VideoFrame<'_>) + Send + Sync + 'static,
+        F: Fn(VideoFrame<'_>) + Send + 'static,
     {
         let requested_pixel_format = match config.pixel_format {
             Some(pixel_format @ PixelFormat::Unknown(_)) => {
@@ -103,10 +103,7 @@ impl Drop for VideoCapture {
     }
 }
 
-// VideoCapture はプラットフォーム固有のキャプチャセッションを内部で管理し、
-// コールバックはスレッドセーフな Arc<CaptureContext> を通じて処理される
 unsafe impl Send for VideoCapture {}
-unsafe impl Sync for VideoCapture {}
 
 /// NV12 の Y / UV プレーンのバイト長を計算する。負のストライドやオーバーフロー時は None。
 fn nv12_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
