@@ -1,6 +1,5 @@
 use std::ffi::CString;
 use std::ptr::NonNull;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::error::{Error, Result};
@@ -9,7 +8,7 @@ use crate::types::{CaptureContext, PixelBuffer, PixelFormat, VideoCaptureConfig,
 
 pub struct VideoCapture {
     session: Option<NonNull<ffi::VideoSession>>,
-    context: Option<Arc<CaptureContext>>,
+    context: Option<Box<CaptureContext>>,
     config: VideoCaptureConfig,
 }
 
@@ -45,7 +44,7 @@ impl VideoCapture {
 
         let session = NonNull::new(session).ok_or(Error::SessionCreateFailed)?;
 
-        let context = Arc::new(CaptureContext {
+        let context = Box::new(CaptureContext {
             callback: Box::new(callback),
             running: AtomicBool::new(false),
         });
@@ -59,13 +58,13 @@ impl VideoCapture {
 
     pub fn start(&mut self) -> Result<()> {
         let session = self.session.ok_or(Error::SessionStartFailed)?;
-        let context = self.context.as_ref().ok_or(Error::SessionStartFailed)?;
+        let context = self.context.as_mut().ok_or(Error::SessionStartFailed)?;
 
         if context.running.load(Ordering::Acquire) {
             return Ok(());
         }
 
-        let context_ptr = Arc::as_ptr(context) as *mut std::ffi::c_void;
+        let context_ptr = context.as_mut() as *mut CaptureContext as *mut std::ffi::c_void;
         let ret = unsafe {
             ffi::video_session_start(session.as_ptr(), Some(frame_callback), context_ptr)
         };
