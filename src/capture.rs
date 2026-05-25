@@ -4,7 +4,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::error::{Error, Result};
 use crate::ffi;
-use crate::types::{CaptureContext, PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFrame};
+use crate::types::{PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFrame};
+
+struct CaptureContext {
+    callback: Box<dyn Fn(VideoFrame<'_>) + Send + 'static>,
+    running: AtomicBool,
+}
 
 pub struct VideoCapture {
     session: Option<NonNull<ffi::VideoSession>>,

@@ -280,12 +280,6 @@ impl VideoFrameOwned {
     }
 }
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-pub(crate) struct CaptureContext {
-    pub(crate) callback: Box<dyn Fn(VideoFrame<'_>) + Send + 'static>,
-    pub(crate) running: AtomicBool,
-}
-
 /// CoInitializeEx / CoUninitialize を対で呼び出す RAII ガード
 #[cfg(target_os = "windows")]
 pub(crate) struct CoInitGuard;
@@ -339,7 +333,7 @@ impl Drop for CoTaskMemActivateArrayGuard {
 
 /// Media Foundation GUID を PixelFormat に変換
 #[cfg(target_os = "windows")]
-pub fn guid_to_pixel_format(guid: &windows::core::GUID) -> Option<PixelFormat> {
+pub(crate) fn guid_to_pixel_format(guid: &windows::core::GUID) -> Option<PixelFormat> {
     if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12 {
         Some(PixelFormat::Nv12)
     } else if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_YUY2 {
@@ -353,7 +347,7 @@ pub fn guid_to_pixel_format(guid: &windows::core::GUID) -> Option<PixelFormat> {
 
 /// PixelFormat を Media Foundation GUID に変換
 #[cfg(target_os = "windows")]
-pub fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<windows::core::GUID> {
+pub(crate) fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<windows::core::GUID> {
     match pixel_format {
         PixelFormat::Nv12 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12),
         PixelFormat::Yuy2 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_YUY2),
