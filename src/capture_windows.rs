@@ -459,7 +459,12 @@ fn nv12_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
 
 /// I420 連結 Y+U+V に必要なバイト数（Y + U + V の合計が Y+Y/2 になる標準レイアウト）。
 fn i420_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
-    nv12_packed_frame_bytes(width, height)
+    if width <= 0 || height <= 0 {
+        return None;
+    }
+    let y = (width as usize).checked_mul(height as usize)?;
+    let uv = ((width as usize).div_ceil(2)).checked_mul((height as usize).div_ceil(2))?;
+    y.checked_add(uv.checked_mul(2)?)
 }
 
 /// YUY2 の 1 フレーム分のバイト数。
