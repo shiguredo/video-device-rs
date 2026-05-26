@@ -7,18 +7,92 @@ unsafe extern "C" {
     fn CFRelease(cf: *const c_void);
 }
 
-/// ピクセルフォーマット定数 (video_c.h と同じ値)
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+/// ビデオデバイスを表すトレイト。
+///
+/// バックエンドに依存しない形でデバイス情報（名前、一意識別子、対応フォーマット）を取得する。
+/// `Send + Sync` であるため、`Arc<impl VideoDevice>` でスレッド間共有が可能。
+pub trait VideoDevice: Send + Sync {
+    /// デバイス名を取得する。
+    ///
+    /// FFI バックエンドでは C 側がヌルポインタを返しうるため `Result` を返す。
+    fn name(&self) -> crate::error::Result<String>;
+    /// デバイスの一意識別子を取得する。
+    ///
+    /// FFI バックエンドでは C 側がヌルポインタを返しうるため `Result` を返す。
+    fn unique_id(&self) -> crate::error::Result<String>;
+    /// 対応フォーマット数を取得する。
+    ///
+    /// C 側が報告するエントリ数（インデックスの上限）である。
+    /// [`formats`](VideoDevice::formats) は `NULL` で取得できなかったインデックスをスキップするため、
+    /// 返すベクタの要素数がこれより少ない場合がある。
+    fn format_count(&self) -> usize;
+    /// 対応フォーマット一覧を取得する。
+    ///
+    /// 実際に取得できたフォーマットのリストである。
+    /// [`format_count`](VideoDevice::format_count) の値と一致しない場合がある（上記のスキップのため）。
+    fn formats(&self) -> Vec<VideoFormat>;
+}
+
+/// ビデオデバイスリストを表すトレイト。
+///
+/// GAT（Generic Associated Type）を用いて、`devices()` が返す参照のライフタイムを
+/// `&self` の借用に束縛する。これによりリストが drop された後にデバイスを
+/// 使用するコードはコンパイル時に防がれる。
+///
+/// `Box<dyn VideoDeviceList>` による動的ディスパッチは不可（GAT を含むトレイトは object-safe でないため）。
+/// バックエンド選択は `#[cfg]` による静的分岐で行う。
+pub trait VideoDeviceList: Send + Sync {
+    /// デバイス型。FFI ベースのバックエンドではライフタイムパラメータを持つ。
+    type Device<'a>: VideoDevice + 'a
+    where
+        Self: 'a;
+
+    /// デバイスのスライスを取得する。
+    ///
+    /// 戻り値のライフタイムは `&self` に束縛されるため、
+    /// リストを先に drop した後にデバイスを使おうとするとコンパイルエラーになる。
+    fn devices(&self) -> &[Self::Device<'_>];
+    /// デバイス数を取得する。
+    fn len(&self) -> usize {
+        self.devices().len()
+    }
+    /// デバイスが空かどうかを返す。
+    fn is_empty(&self) -> bool {
+        self.devices().is_empty()
+    }
+}
+
+/// ビデオキャプチャを表すトレイト。
+///
+/// キャプチャの開始・停止・設定取得を提供する。
+/// `Send` 境界は持たない（Windows バックエンドが COM スレッド束縛のため `!Send`）。
+pub trait VideoCapture {
+    /// キャプチャを開始する。
+    ///
+    /// 冪等: 既に running 状態であれば `Ok(())` を返す。
+    /// `stop` 後の再 `start` は許容する。
+    ///
+    /// PipeWire バックエンドでは内部でストリーミング状態になるまでブロックする。
+    /// 他バックエンドでは即座に復帰する。
+    fn start(&mut self) -> crate::error::Result<()>;
+    /// キャプチャを停止する。
+    ///
+    /// ブロッキング: 全バックエンドでキャプチャスレッド/コールバックの完了を待機してから復帰する。
+    /// running でない状態の場合は no-op。
+    fn stop(&mut self);
+    /// キャプチャ設定を取得する。
+    fn config(&self) -> &VideoCaptureConfig;
+}
+
+/// ピクセルフォーマット定数 (video_common.h と同じ FourCC 値)
 pub(crate) const VIDEO_PIXEL_FORMAT_NV12: u32 = 0x3231564E;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const VIDEO_PIXEL_FORMAT_YUY2: u32 = 0x32595559;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const VIDEO_PIXEL_FORMAT_I420: u32 = 0x30323449;
 
 /// ピクセルフォーマット
 ///
-/// **Windows** では `to_raw` / `from_raw` はビルド対象に含まれない（`cfg` により定義されない）。
 /// 列挙・キャプチャは Media Foundation の `GUID` と内部で対応付けている。
+/// `to_raw` / `from_raw` は FourCC 値との変換であり、全プラットフォームで利用可能。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PixelFormat {
     /// NV12 (YUV 4:2:0 semi-planar)
@@ -33,7 +107,6 @@ pub enum PixelFormat {
 
 impl PixelFormat {
     /// 生の値からピクセルフォーマットを生成
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub(crate) fn from_raw(raw: u32) -> Self {
         match raw {
             VIDEO_PIXEL_FORMAT_NV12 => PixelFormat::Nv12,
@@ -44,7 +117,6 @@ impl PixelFormat {
     }
 
     /// ピクセルフォーマットを生の値に変換
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn to_raw(&self) -> u32 {
         match self {
             PixelFormat::Nv12 => VIDEO_PIXEL_FORMAT_NV12,
@@ -280,9 +352,13 @@ impl VideoFrameOwned {
     }
 }
 
-/// CoInitializeEx / CoUninitialize を対で呼び出す RAII ガード
+/// CoInitializeEx / CoUninitialize を対で呼び出す RAII ガード。
+///
+/// `!Send` であるため、別スレッドへの移動はコンパイルエラーになる。
 #[cfg(target_os = "windows")]
-pub(crate) struct CoInitGuard;
+pub(crate) struct CoInitGuard {
+    _not_send: std::marker::PhantomData<*const ()>,
+}
 
 #[cfg(target_os = "windows")]
 impl CoInitGuard {
@@ -297,7 +373,9 @@ impl CoInitGuard {
         if result.is_err() {
             return Err(crate::Error::ComInitFailed);
         }
-        Ok(Self)
+        Ok(Self {
+            _not_send: std::marker::PhantomData,
+        })
     }
 }
 
@@ -310,7 +388,7 @@ impl Drop for CoInitGuard {
     }
 }
 
-/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
+/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず drop した上で `CoTaskMemFree` する。
 #[cfg(target_os = "windows")]
 pub(crate) struct CoTaskMemActivateArrayGuard {
     pub(crate) ptr: *mut Option<windows::Win32::Media::MediaFoundation::IMFActivate>,

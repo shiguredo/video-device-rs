@@ -12,7 +12,7 @@
 #include <spa/debug/types.h>
 #include <spa/pod/builder.h>
 
-#include "video_c.h"
+#include "video_pipewire.h"
 
 // VideoDevice 構造体
 struct VideoDevice {
@@ -137,7 +137,7 @@ static const struct pw_core_events enum_core_events = {
 };
 
 // デバイス列挙
-int video_enumerate_devices(struct VideoDevice*** devices, int* count) {
+int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) {
     if (!devices || !count) {
         return -1;
     }
@@ -203,7 +203,7 @@ int video_enumerate_devices(struct VideoDevice*** devices, int* count) {
     return 0;
 }
 
-void video_free_devices(struct VideoDevice** devices, int count) {
+void video_pipewire_free_devices(struct VideoDevice** devices, int count) {
     if (!devices) {
         return;
     }
@@ -219,28 +219,28 @@ void video_free_devices(struct VideoDevice** devices, int count) {
     free(devices);
 }
 
-const char* video_device_name(struct VideoDevice* device) {
+const char* video_pipewire_device_name(struct VideoDevice* device) {
     if (!device) {
         return NULL;
     }
     return device->name;
 }
 
-const char* video_device_unique_id(struct VideoDevice* device) {
+const char* video_pipewire_device_unique_id(struct VideoDevice* device) {
     if (!device) {
         return NULL;
     }
     return device->unique_id;
 }
 
-int video_device_format_count(struct VideoDevice* device) {
+int video_pipewire_device_format_count(struct VideoDevice* device) {
     if (!device) {
         return 0;
     }
     return device->format_count;
 }
 
-const struct VideoFormatEntry* video_device_get_format(struct VideoDevice* device, int index) {
+const struct VideoFormatEntry* video_pipewire_device_get_format(struct VideoDevice* device, int index) {
     if (!device || index < 0 || index >= device->format_count) {
         return NULL;
     }
@@ -564,7 +564,7 @@ static const struct pw_core_events session_core_events = {
     .error = session_core_error,
 };
 
-struct VideoSession* video_session_create(const char* device_id, int width,
+struct VideoSession* video_pipewire_session_create(const char* device_id, int width,
                                           int height, int fps,
                                           uint32_t requested_pixel_format) {
     struct VideoSession* session = calloc(1, sizeof(struct VideoSession));
@@ -621,13 +621,13 @@ struct VideoSession* video_session_create(const char* device_id, int width,
     return session;
 }
 
-void video_session_destroy(struct VideoSession* session) {
+void video_pipewire_session_destroy(struct VideoSession* session) {
     if (!session) {
         return;
     }
 
     if (atomic_load(&session->running)) {
-        video_session_stop(session);
+        video_pipewire_session_stop(session);
     }
 
     if (session->stream) {
@@ -651,7 +651,7 @@ void video_session_destroy(struct VideoSession* session) {
     free(session);
 }
 
-int video_session_start(struct VideoSession* session, FrameCallback callback,
+int video_pipewire_session_start(struct VideoSession* session, FrameCallback callback,
                         void* user_data) {
     if (!session || !callback) {
         return -1;
@@ -777,7 +777,7 @@ int video_session_start(struct VideoSession* session, FrameCallback callback,
     return 0;
 }
 
-void video_session_stop(struct VideoSession* session) {
+void video_pipewire_session_stop(struct VideoSession* session) {
     if (!session || !atomic_load(&session->running)) {
         return;
     }

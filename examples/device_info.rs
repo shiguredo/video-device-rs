@@ -1,9 +1,27 @@
 use std::collections::{BTreeSet, HashMap};
 
-use shiguredo_video_device::{PixelFormat, VideoDeviceList};
+use shiguredo_video_device::{PixelFormat, VideoDevice, VideoDeviceList};
+
+#[cfg(target_os = "macos")]
+use shiguredo_video_device::AvfVideoDeviceList;
+#[cfg(target_os = "windows")]
+use shiguredo_video_device::MfVideoDeviceList;
+#[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+use shiguredo_video_device::PipewireVideoDeviceList;
+#[cfg(all(target_os = "linux", feature = "v4l2"))]
+use shiguredo_video_device::V4l2VideoDeviceList;
 
 fn main() {
-    let device_list = match VideoDeviceList::enumerate() {
+    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    let device_list = V4l2VideoDeviceList::enumerate();
+    #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+    let device_list = PipewireVideoDeviceList::enumerate();
+    #[cfg(target_os = "macos")]
+    let device_list = AvfVideoDeviceList::enumerate();
+    #[cfg(target_os = "windows")]
+    let device_list = MfVideoDeviceList::enumerate();
+
+    let device_list = match device_list {
         Ok(list) => list,
         Err(e) => {
             eprintln!("デバイスの列挙に失敗しました: {e}");
@@ -17,7 +35,7 @@ fn main() {
     let mut fps_min = f32::MAX;
     let mut fps_max = f32::MIN;
 
-    for device in &device_list {
+    for device in device_list.devices() {
         let formats = device.formats();
         for format in &formats {
             total_format_count += 1;
@@ -47,7 +65,7 @@ fn main() {
             f.member(
                 "devices",
                 nojson::array(|f| {
-                    for device in &device_list {
+                    for device in device_list.devices() {
                         let name = device.name().unwrap_or_default();
                         let unique_id = device.unique_id().unwrap_or_default();
                         let formats = device.formats();

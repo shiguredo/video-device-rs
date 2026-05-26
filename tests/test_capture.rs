@@ -8,17 +8,34 @@ use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
 use shiguredo_video_device::{
-    VideoCapture, VideoCaptureConfig, VideoDeviceList, VideoFrame, VideoFrameOwned,
+    VideoCapture, VideoCaptureConfig, VideoDevice, VideoDeviceList, VideoFrame, VideoFrameOwned,
 };
+
+#[cfg(target_os = "macos")]
+use shiguredo_video_device::{AvfVideoCapture, AvfVideoDeviceList};
+#[cfg(target_os = "windows")]
+use shiguredo_video_device::{MfVideoCapture, MfVideoDeviceList};
+#[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+use shiguredo_video_device::{PipewireVideoCapture, PipewireVideoDeviceList};
+#[cfg(all(target_os = "linux", feature = "v4l2"))]
+use shiguredo_video_device::{V4l2VideoCapture, V4l2VideoDeviceList};
 
 /// デバイスが存在する環境で列挙が成功し、名前と ID が空でないことを確認する
 #[test]
 #[ignore]
 fn test_enumerate_devices() {
-    let device_list = VideoDeviceList::enumerate().expect("device enumeration failed");
+    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    let device_list = V4l2VideoDeviceList::enumerate().expect("device enumeration failed");
+    #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+    let device_list = PipewireVideoDeviceList::enumerate().expect("device enumeration failed");
+    #[cfg(target_os = "macos")]
+    let device_list = AvfVideoDeviceList::enumerate().expect("device enumeration failed");
+    #[cfg(target_os = "windows")]
+    let device_list = MfVideoDeviceList::enumerate().expect("device enumeration failed");
+
     assert!(!device_list.is_empty(), "no video device found");
 
-    for device in &device_list {
+    for device in device_list.devices() {
         let name = device.name().expect("failed to get device name");
         let id = device.unique_id().expect("failed to get device unique_id");
         assert!(!name.is_empty(), "device name is empty");
@@ -34,7 +51,15 @@ fn test_capture_frames() {
     let timeout = Duration::from_secs(10);
 
     // デバイスを列挙して先頭デバイスの ID を取得する
-    let device_list = VideoDeviceList::enumerate().expect("device enumeration failed");
+    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    let device_list = V4l2VideoDeviceList::enumerate().expect("device enumeration failed");
+    #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+    let device_list = PipewireVideoDeviceList::enumerate().expect("device enumeration failed");
+    #[cfg(target_os = "macos")]
+    let device_list = AvfVideoDeviceList::enumerate().expect("device enumeration failed");
+    #[cfg(target_os = "windows")]
+    let device_list = MfVideoDeviceList::enumerate().expect("device enumeration failed");
+
     assert!(!device_list.is_empty(), "no video device found");
     let device_id = device_list.devices()[0]
         .unique_id()
@@ -48,15 +73,24 @@ fn test_capture_frames() {
         ..VideoCaptureConfig::default()
     };
 
-    let mut capture = VideoCapture::new(config, move |frame: VideoFrame<'_>| {
-        static DROP_LOG: Once = Once::new();
-        if tx.try_send(frame.to_owned()).is_err() {
-            DROP_LOG.call_once(|| {
-                eprintln!(
-                    "test_capture_frames: dropped frame (channel full or receiver disconnected)"
-                );
-            });
-        }
+    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    let mut capture = V4l2VideoCapture::new(config, move |frame: VideoFrame<'_>| {
+        send_frame(&tx, frame);
+    })
+    .expect("VideoCapture creation failed");
+    #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+    let mut capture = PipewireVideoCapture::new(config, move |frame: VideoFrame<'_>| {
+        send_frame(&tx, frame);
+    })
+    .expect("VideoCapture creation failed");
+    #[cfg(target_os = "macos")]
+    let mut capture = AvfVideoCapture::new(config, move |frame: VideoFrame<'_>| {
+        send_frame(&tx, frame);
+    })
+    .expect("VideoCapture creation failed");
+    #[cfg(target_os = "windows")]
+    let mut capture = MfVideoCapture::new(config, move |frame: VideoFrame<'_>| {
+        send_frame(&tx, frame);
     })
     .expect("VideoCapture creation failed");
 
@@ -76,4 +110,13 @@ fn test_capture_frames() {
     }
 
     capture.stop();
+}
+
+fn send_frame(tx: &std::sync::mpsc::SyncSender<VideoFrameOwned>, frame: VideoFrame<'_>) {
+    static DROP_LOG: Once = Once::new();
+    if tx.try_send(frame.to_owned()).is_err() {
+        DROP_LOG.call_once(|| {
+            eprintln!("test_capture_frames: dropped frame (channel full or receiver disconnected)");
+        });
+    }
 }

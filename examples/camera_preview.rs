@@ -16,8 +16,29 @@ use std::time::Instant;
 
 use raw_player::{KEYCODE_ESCAPE, VideoPlayer};
 use shiguredo_video_device::{
-    PixelFormat, VideoCapture, VideoCaptureConfig, VideoDeviceList, VideoFrame, VideoFrameOwned,
+    PixelFormat, VideoCapture, VideoCaptureConfig, VideoDevice, VideoDeviceList, VideoFrame,
+    VideoFrameOwned,
 };
+
+// バックエンド別の具象型を feature flag に応じて選択
+#[cfg(target_os = "macos")]
+use shiguredo_video_device::AvfVideoCapture;
+#[cfg(target_os = "windows")]
+use shiguredo_video_device::MfVideoCapture;
+#[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+use shiguredo_video_device::PipewireVideoCapture;
+#[cfg(all(target_os = "linux", feature = "v4l2"))]
+use shiguredo_video_device::V4l2VideoCapture;
+
+// バックエンド別の具象型の略称を解決し、サンプルコードを簡潔にする
+#[cfg(all(target_os = "linux", feature = "v4l2"))]
+type CurrentVideoCapture = V4l2VideoCapture;
+#[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+type CurrentVideoCapture = PipewireVideoCapture;
+#[cfg(target_os = "macos")]
+type CurrentVideoCapture = AvfVideoCapture;
+#[cfg(target_os = "windows")]
+type CurrentVideoCapture = MfVideoCapture;
 
 struct Args {
     list_devices: bool,
@@ -189,32 +210,27 @@ fn strip_stride<'a>(
     Cow::Owned(result)
 }
 
-fn list_devices() {
-    println!("=== 映像デバイス一覧 ===");
-    match VideoDeviceList::enumerate() {
-        Ok(devices) => {
-            if devices.is_empty() {
-                println!("  映像デバイスが見つかりません");
-            } else {
-                for device in devices.devices() {
-                    let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
-                    let id = device.unique_id().unwrap_or_else(|_| "Unknown".to_string());
-                    println!("  {name}");
-                    println!("    ID: {id}");
-                    for fmt in device.formats() {
-                        println!(
-                            "    {}x{} @ {:.0}-{:.0} fps ({})",
-                            fmt.width,
-                            fmt.height,
-                            fmt.min_fps,
-                            fmt.max_fps,
-                            fmt.pixel_format.name()
-                        );
-                    }
-                }
-            }
+/// デバイス列挙結果を表示する共通処理
+fn print_device_list(list: &impl VideoDeviceList) {
+    if list.is_empty() {
+        println!("  映像デバイスが見つかりません");
+        return;
+    }
+    for device in list.devices() {
+        let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
+        let id = device.unique_id().unwrap_or_else(|_| "Unknown".to_string());
+        println!("  {name}");
+        println!("    ID: {id}");
+        for fmt in device.formats() {
+            println!(
+                "    {}x{} @ {:.0}-{:.0} fps ({})",
+                fmt.width,
+                fmt.height,
+                fmt.min_fps,
+                fmt.max_fps,
+                fmt.pixel_format.name()
+            );
         }
-        Err(e) => eprintln!("  映像デバイスの列挙に失敗: {e:?}"),
     }
 }
 
@@ -292,7 +308,35 @@ fn main() {
     let args = parse_args();
 
     if args.list_devices {
-        list_devices();
+        println!("=== 映像デバイス一覧 ===");
+        #[cfg(all(target_os = "linux", feature = "v4l2"))]
+        {
+            print_device_list(
+                &shiguredo_video_device::V4l2VideoDeviceList::enumerate()
+                    .expect("デバイスの列挙に失敗しました"),
+            );
+        }
+        #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+        {
+            print_device_list(
+                &shiguredo_video_device::PipewireVideoDeviceList::enumerate()
+                    .expect("デバイスの列挙に失敗しました"),
+            );
+        }
+        #[cfg(target_os = "macos")]
+        {
+            print_device_list(
+                &shiguredo_video_device::AvfVideoDeviceList::enumerate()
+                    .expect("デバイスの列挙に失敗しました"),
+            );
+        }
+        #[cfg(target_os = "windows")]
+        {
+            print_device_list(
+                &shiguredo_video_device::MfVideoDeviceList::enumerate()
+                    .expect("デバイスの列挙に失敗しました"),
+            );
+        }
         return;
     }
 
@@ -308,7 +352,7 @@ fn main() {
         fps: args.fps,
         pixel_format: None,
     };
-    let mut video_capture = VideoCapture::new(video_config, move |frame: VideoFrame<'_>| {
+    let mut video_capture = CurrentVideoCapture::new(video_config, move |frame: VideoFrame<'_>| {
         if tx.try_send(frame.to_owned()).is_err() {
             static DROP_LOG: Once = Once::new();
             DROP_LOG.call_once(|| {
