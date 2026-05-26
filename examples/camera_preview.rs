@@ -242,7 +242,7 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
             let Some(uv_data) = frame.uv_data else {
                 return Ok(());
             };
-            let uv = strip_stride(uv_data, w, h / 2, stride_uv);
+            let uv = strip_stride(uv_data, w, h.div_ceil(2), stride_uv);
             player.enqueue_video_nv12(&y, &uv, frame.width, frame.height, pts_us)?;
         }
         PixelFormat::I420 => {
@@ -250,8 +250,8 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
             let Some(uv_data) = frame.uv_data else {
                 return Ok(());
             };
-            let uv_w = w / 2;
-            let uv_h = h / 2;
+            let uv_w = w.div_ceil(2);
+            let uv_h = h.div_ceil(2);
             let Some(u_plane_size) = stride_uv.checked_mul(uv_h) else {
                 return Ok(());
             };

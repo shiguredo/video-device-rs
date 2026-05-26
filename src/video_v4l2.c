@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <linux/videodev2.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,7 +39,7 @@ struct VideoSession {
     FrameCallback callback;
     void* user_data;
     pthread_t thread;
-    volatile int running;
+    atomic_int running;
 };
 
 static int xioctl(int fd, unsigned long request, void* arg) {
@@ -484,7 +485,7 @@ struct VideoSession* video_session_create(const char* device_id, int width,
     session->width = fmt.fmt.pix.width;
     session->height = fmt.fmt.pix.height;
     session->pixel_format = pixel_format;
-    session->running = 0;
+    atomic_init(&session->running, 0);
 
     if (init_mmap(session) < 0) {
         close(fd);
@@ -500,7 +501,7 @@ void video_session_destroy(struct VideoSession* session) {
         return;
     }
 
-    if (session->running) {
+    if (atomic_load(&session->running)) {
         video_session_stop(session);
     }
 
@@ -516,7 +517,7 @@ void video_session_destroy(struct VideoSession* session) {
 static void* capture_thread(void* arg) {
     struct VideoSession* session = (struct VideoSession*)arg;
 
-    while (session->running) {
+    while (atomic_load(&session->running)) {
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(session->fd, &fds);
@@ -563,9 +564,12 @@ static void* capture_thread(void* arg) {
             const uint8_t* data = (const uint8_t*)session->buffers[buf.index].start;
             size_t mmap_len = session->buffers[buf.index].length;
             // bytesused が 0 の場合はドライバ不具合とみなしてスキップ
+            if (buf.bytesused == 0) {
+                goto requeue;
+            }
             uint32_t used = buf.bytesused;
             // 有効データ長は mmap 長と bytesused の小さい方で制限する
-            size_t available = (used > 0 && (size_t)used < mmap_len) ? (size_t)used : mmap_len;
+            size_t available = (size_t)used < mmap_len ? (size_t)used : mmap_len;
 
             if (session->pixel_format == V4L2_PIX_FMT_NV12) {
                 // NV12: Y プレーンと UV プレーンが連続
@@ -582,6 +586,20 @@ static void* capture_thread(void* arg) {
                 session->callback(session->user_data, data, uv_data, session->width,
                                   session->height, session->width, session->width,
                                   VIDEO_PIXEL_FORMAT_NV12, timestamp_us, NULL);
+            } else if (session->pixel_format == V4L2_PIX_FMT_YUV420) {
+                // YUV420: Y, U, V プレーンが連続
+                size_t y_size = (size_t)session->width * (size_t)session->height;
+                size_t chroma_h = ((size_t)session->height + 1u) / 2u;
+                int stride_uv = (session->width + 1) / 2;
+                size_t uv_total = (size_t)stride_uv * chroma_h * 2u;
+                size_t need = y_size + uv_total;
+                if (need > available) {
+                    goto requeue;
+                }
+                const uint8_t* uv_data = data + y_size;
+                session->callback(session->user_data, data, uv_data, session->width,
+                                session->height, session->width, stride_uv,
+                                VIDEO_PIXEL_FORMAT_I420, timestamp_us, NULL);
             } else if (session->pixel_format == V4L2_PIX_FMT_YUYV) {
                 // YUY2: パックドフォーマット
                 size_t need = (size_t)session->width * 2 * (size_t)session->height;
@@ -609,7 +627,7 @@ int video_session_start(struct VideoSession* session, FrameCallback callback, vo
         return -1;
     }
 
-    if (session->running) {
+    if (atomic_load(&session->running)) {
         return 0;
     }
 
@@ -635,11 +653,11 @@ int video_session_start(struct VideoSession* session, FrameCallback callback, vo
         return -1;
     }
 
-    session->running = 1;
+    atomic_store(&session->running, 1);
 
     // キャプチャスレッドを開始
     if (pthread_create(&session->thread, NULL, capture_thread, session) != 0) {
-        session->running = 0;
+        atomic_store(&session->running, 0);
         xioctl(session->fd, VIDIOC_STREAMOFF, &type);
         return -1;
     }
@@ -648,11 +666,11 @@ int video_session_start(struct VideoSession* session, FrameCallback callback, vo
 }
 
 void video_session_stop(struct VideoSession* session) {
-    if (!session || !session->running) {
+    if (!session || !atomic_load(&session->running)) {
         return;
     }
 
-    session->running = 0;
+    atomic_store(&session->running, 0);
 
     pthread_join(session->thread, NULL);
 

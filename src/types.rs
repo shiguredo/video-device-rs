@@ -1,6 +1,5 @@
 use std::ffi::c_void;
 use std::fmt;
-use std::sync::atomic::AtomicBool;
 
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
@@ -149,10 +148,9 @@ impl Eq for PixelBuffer {}
 
 // Core Foundation の参照カウントはスレッドセーフで、保持しているのは不透明ポインタのみ。
 unsafe impl Send for PixelBuffer {}
-unsafe impl Sync for PixelBuffer {}
 
 /// ビデオデバイスが対応するフォーマット
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VideoFormat {
     /// 幅
     pub width: i32,
@@ -172,6 +170,7 @@ pub struct VideoFormat {
 /// **Linux（PipeWire 等）** では不正値を C 側が既定解像度・フレームレートに置き換える場合があるため、Rust 側では拒否しない。
 ///
 /// ネゴシエーション結果が未知のピクセルフォーマットになる場合の挙動は、バックエンド（macOS / V4L2 / PipeWire / Windows）により異なりうる。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoCaptureConfig {
     /// デバイス ID (None の場合はデフォルトデバイス)
     pub device_id: Option<String>,
@@ -200,6 +199,7 @@ impl Default for VideoCaptureConfig {
 /// キャプチャされたビデオフレームの生データ（借用）。
 ///
 /// `data` および `uv_data` が指すメモリの寿命は、ユーザに渡したコールバックの呼び出し中に限る。
+#[derive(Debug)]
 pub struct VideoFrame<'a> {
     /// Y プレーンまたはインターリーブデータ
     pub data: &'a [u8],
@@ -280,7 +280,78 @@ impl VideoFrameOwned {
     }
 }
 
-pub(crate) struct CaptureContext {
-    pub(crate) callback: Box<dyn Fn(VideoFrame<'_>) + Send + Sync>,
-    pub(crate) running: AtomicBool,
+/// CoInitializeEx / CoUninitialize を対で呼び出す RAII ガード
+#[cfg(target_os = "windows")]
+pub(crate) struct CoInitGuard;
+
+#[cfg(target_os = "windows")]
+impl CoInitGuard {
+    #[allow(clippy::new_ret_no_self)]
+    pub(crate) fn new() -> crate::Result<Self> {
+        let result = unsafe {
+            windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            )
+        };
+        if result.is_err() {
+            return Err(crate::Error::ComInitFailed);
+        }
+        Ok(Self)
+    }
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for CoInitGuard {
+    fn drop(&mut self) {
+        unsafe {
+            windows::Win32::System::Com::CoUninitialize();
+        }
+    }
+}
+
+/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
+#[cfg(target_os = "windows")]
+pub(crate) struct CoTaskMemActivateArrayGuard {
+    pub(crate) ptr: *mut Option<windows::Win32::Media::MediaFoundation::IMFActivate>,
+    pub(crate) count: u32,
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for CoTaskMemActivateArrayGuard {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                for i in 0..self.count as usize {
+                    std::ptr::drop_in_place(self.ptr.add(i));
+                }
+                windows::Win32::System::Com::CoTaskMemFree(Some(self.ptr as *const _));
+            }
+        }
+    }
+}
+
+/// Media Foundation GUID を PixelFormat に変換
+#[cfg(target_os = "windows")]
+pub(crate) fn guid_to_pixel_format(guid: &windows::core::GUID) -> Option<PixelFormat> {
+    if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12 {
+        Some(PixelFormat::Nv12)
+    } else if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_YUY2 {
+        Some(PixelFormat::Yuy2)
+    } else if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_I420 {
+        Some(PixelFormat::I420)
+    } else {
+        None
+    }
+}
+
+/// PixelFormat を Media Foundation GUID に変換
+#[cfg(target_os = "windows")]
+pub(crate) fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<windows::core::GUID> {
+    match pixel_format {
+        PixelFormat::Nv12 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12),
+        PixelFormat::Yuy2 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_YUY2),
+        PixelFormat::I420 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_I420),
+        PixelFormat::Unknown(_) => None,
+    }
 }

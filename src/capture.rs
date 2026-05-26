@@ -1,22 +1,26 @@
 use std::ffi::CString;
 use std::ptr::NonNull;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::error::{Error, Result};
 use crate::ffi;
-use crate::types::{CaptureContext, PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFrame};
+use crate::types::{PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFrame};
+
+struct CaptureContext {
+    callback: Box<dyn Fn(VideoFrame<'_>) + Send + 'static>,
+    running: AtomicBool,
+}
 
 pub struct VideoCapture {
     session: Option<NonNull<ffi::VideoSession>>,
-    context: Option<Arc<CaptureContext>>,
+    context: Option<Box<CaptureContext>>,
     config: VideoCaptureConfig,
 }
 
 impl VideoCapture {
     pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
-        F: Fn(VideoFrame<'_>) + Send + Sync + 'static,
+        F: Fn(VideoFrame<'_>) + Send + 'static,
     {
         let requested_pixel_format = match config.pixel_format {
             Some(pixel_format @ PixelFormat::Unknown(_)) => {
@@ -45,7 +49,7 @@ impl VideoCapture {
 
         let session = NonNull::new(session).ok_or(Error::SessionCreateFailed)?;
 
-        let context = Arc::new(CaptureContext {
+        let context = Box::new(CaptureContext {
             callback: Box::new(callback),
             running: AtomicBool::new(false),
         });
@@ -59,13 +63,13 @@ impl VideoCapture {
 
     pub fn start(&mut self) -> Result<()> {
         let session = self.session.ok_or(Error::SessionStartFailed)?;
-        let context = self.context.as_ref().ok_or(Error::SessionStartFailed)?;
+        let context = self.context.as_mut().ok_or(Error::SessionStartFailed)?;
 
         if context.running.load(Ordering::Acquire) {
             return Ok(());
         }
 
-        let context_ptr = Arc::as_ptr(context) as *mut std::ffi::c_void;
+        let context_ptr = context.as_mut() as *mut CaptureContext as *mut std::ffi::c_void;
         let ret = unsafe {
             ffi::video_session_start(session.as_ptr(), Some(frame_callback), context_ptr)
         };
@@ -103,10 +107,7 @@ impl Drop for VideoCapture {
     }
 }
 
-// VideoCapture はプラットフォーム固有のキャプチャセッションを内部で管理し、
-// コールバックはスレッドセーフな Arc<CaptureContext> を通じて処理される
 unsafe impl Send for VideoCapture {}
-unsafe impl Sync for VideoCapture {}
 
 /// NV12 の Y / UV プレーンのバイト長を計算する。負のストライドやオーバーフロー時は None。
 fn nv12_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
@@ -164,7 +165,7 @@ extern "C" fn frame_callback(
         return;
     }
 
-    // SAFETY: user_data は Arc<CaptureContext> から取得したポインタ
+    // SAFETY: user_data は Box<CaptureContext> から取得したポインタ
     // context の生存期間は VideoCapture によって保証される
     let context = unsafe { &*(user_data as *const CaptureContext) };
 

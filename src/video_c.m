@@ -360,7 +360,7 @@ struct VideoSession* video_session_create(const char* device_id, int width,
     }
 
     struct VideoSession* videoSession =
-        (struct VideoSession*)malloc(sizeof(struct VideoSession));
+        (struct VideoSession*)calloc(1, sizeof(struct VideoSession));
     if (!videoSession) {
         return NULL;
     }
@@ -488,10 +488,16 @@ void video_session_destroy(struct VideoSession* session) {
         [session->session stopRunning];
     }
 
-    // malloc した struct に載せた ObjC オブジェクトは ARC が参照カウント管理する。
-    // セッションから入出力を外してから free し、malloc 領域だけを解放する（Instruments でリーク有無を確認すること）。
+    // セッションから入出力を外す
     [session->session removeInput:session->input];
     [session->session removeOutput:session->output];
+
+    // ARC の参照を切るために nil を設定してから解放する
+    session->queue = nil;
+    session->delegate = nil;
+    session->output = nil;
+    session->input = nil;
+    session->session = nil;
 
     free(session);
 }

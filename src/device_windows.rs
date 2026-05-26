@@ -2,25 +2,10 @@
 
 use std::ptr;
 
-use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUID};
+use windows::{Win32::Media::MediaFoundation::*, core::GUID};
 
 use crate::error::{Error, Result};
-use crate::types::{PixelFormat, VideoFormat};
-
-/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
-struct CoTaskMemActivateArrayGuard {
-    ptr: *mut Option<IMFActivate>,
-}
-
-impl Drop for CoTaskMemActivateArrayGuard {
-    fn drop(&mut self) {
-        if !self.ptr.is_null() {
-            unsafe {
-                CoTaskMemFree(Some(self.ptr as *const _));
-            }
-        }
-    }
-}
+use crate::types::{CoInitGuard, CoTaskMemActivateArrayGuard, VideoFormat, guid_to_pixel_format};
 
 /// ビデオデバイス
 pub struct VideoDevice {
@@ -50,9 +35,6 @@ impl VideoDevice {
         self.formats.clone()
     }
 }
-
-unsafe impl Send for VideoDevice {}
-unsafe impl Sync for VideoDevice {}
 
 /// ビデオデバイスリスト
 pub struct VideoDeviceList {
@@ -88,22 +70,6 @@ impl<'a> IntoIterator for &'a VideoDeviceList {
 
     fn into_iter(self) -> Self::IntoIter {
         self.devices.iter()
-    }
-}
-
-unsafe impl Send for VideoDeviceList {}
-unsafe impl Sync for VideoDeviceList {}
-
-/// Media Foundation GUID を PixelFormat に変換
-fn guid_to_pixel_format(guid: &GUID) -> Option<PixelFormat> {
-    if *guid == MFVideoFormat_NV12 {
-        Some(PixelFormat::Nv12)
-    } else if *guid == MFVideoFormat_YUY2 {
-        Some(PixelFormat::Yuy2)
-    } else if *guid == MFVideoFormat_I420 {
-        Some(PixelFormat::I420)
-    } else {
-        None
     }
 }
 
@@ -183,8 +149,7 @@ fn get_device_formats(activate: &IMFActivate) -> Vec<VideoFormat> {
 /// デバイスを列挙
 fn enumerate_devices_internal() -> Result<Vec<VideoDevice>> {
     unsafe {
-        // 列挙用にこのスレッドで COM を初期化する。対称の CoUninitialize は呼ばない（スレッドの参照カウントとアプリ方針に合わせる）。
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let _com_guard = CoInitGuard::new()?;
 
         // MFStartup が失敗した場合は参照カウントを増やしていないため MFShutdown は呼ばない（MSDN の初期化契約に従う）。
         MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::DeviceAccessDenied)?;
@@ -223,7 +188,10 @@ unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
         let mut devices = Vec::new();
 
         if count > 0 && !devices_ptr.is_null() {
-            let _devices_guard = CoTaskMemActivateArrayGuard { ptr: devices_ptr };
+            let _devices_guard = CoTaskMemActivateArrayGuard {
+                ptr: devices_ptr,
+                count,
+            };
 
             let device_slice = std::slice::from_raw_parts(devices_ptr, count as usize);
 
