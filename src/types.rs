@@ -107,6 +107,7 @@ pub enum PixelFormat {
 
 impl PixelFormat {
     /// 生の値からピクセルフォーマットを生成
+    #[cfg(not(target_os = "windows"))]
     pub(crate) fn from_raw(raw: u32) -> Self {
         match raw {
             VIDEO_PIXEL_FORMAT_NV12 => PixelFormat::Nv12,
