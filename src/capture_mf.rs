@@ -122,8 +122,9 @@ impl MfVideoCapture {
         unsafe {
             let com_guard = CoInitGuard::new()?;
 
-            // Media Foundation 初期化
-            let mf_started = MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).is_ok();
+            // Media Foundation 初期化（失敗時は即座にエラーを返す）
+            MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET)
+                .map_err(|_| Error::SessionCreateFailed)?;
             let result = {
                 // デバイスを取得
                 let media_source = activate_device(config.device_id.as_deref())?;
@@ -163,8 +164,8 @@ impl MfVideoCapture {
                 })
             };
 
-            // エラー時は MFStartup とつりあわせるために MFShutdown を呼ぶ
-            if result.is_err() && mf_started {
+            // 構築途中で失敗した場合は MFStartup とつりあわせるために MFShutdown を呼ぶ
+            if result.is_err() {
                 let _ = MFShutdown();
             }
 

@@ -135,6 +135,8 @@ extern "C" fn frame_callback(
         return;
     }
 
+    // SAFETY: user_data は Box<CaptureContext> から取得したポインタ
+    // context の生存期間は PipewireVideoCapture によって保証される
     let context = unsafe { &*(user_data as *const CaptureContext) };
 
     let pf = PixelFormat::from_raw(pixel_format);
@@ -209,6 +211,8 @@ extern "C" fn frame_callback(
         PixelFormat::Unknown(_) => return,
     };
 
+    // SAFETY: ユーザコールバックが panic すると extern "C" 境界を越えて
+    // unwind し未定義動作になるため、catch_unwind で防ぐ
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         (context.callback)(frame);
     }));
