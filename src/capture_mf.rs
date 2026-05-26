@@ -99,10 +99,10 @@ impl VideoCapture for MfVideoCapture {
             self.running.store(false, Ordering::Release);
 
             // スレッドの終了を待機し、コールバックを回収する
-            if let Some(handle) = self.capture_thread.take() {
-                if let Ok(callback) = handle.join() {
-                    self.callback = Some(callback);
-                }
+            if let Some(handle) = self.capture_thread.take()
+                && let Ok(callback) = handle.join()
+            {
+                self.callback = Some(callback);
             }
         }
     }
