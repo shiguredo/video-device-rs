@@ -123,8 +123,7 @@ impl MfVideoCapture {
             let com_guard = CoInitGuard::new()?;
 
             // Media Foundation 初期化（失敗時は即座にエラーを返す）
-            MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET)
-                .map_err(|_| Error::SessionCreateFailed)?;
+            MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::SessionCreateFailed)?;
             let result = {
                 // デバイスを取得
                 let media_source = activate_device(config.device_id.as_deref())?;

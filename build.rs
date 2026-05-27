@@ -1,6 +1,8 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+use bindgen::Builder;
+
 fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let src_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("src");
@@ -9,7 +11,10 @@ fn main() {
     match target_os.as_str() {
         "macos" => {
             build_macos(&src_dir);
-            generate_bindings(&src_dir.join("video_avf.h"), "bindings_avf.rs", &out_dir);
+            let builder = Builder::default().header(
+                src_dir.join("video_avf.h").to_str().unwrap(),
+            );
+            generate_bindings(builder, "bindings_macos.rs", &out_dir);
         }
         "linux" => {
             let has_v4l2 = env::var("CARGO_FEATURE_V4L2").is_ok();
@@ -17,15 +22,23 @@ fn main() {
 
             if has_v4l2 {
                 build_linux_v4l2(&src_dir);
-                generate_bindings(&src_dir.join("video_v4l2.h"), "bindings_v4l2.rs", &out_dir);
             }
             if has_pipewire {
                 build_linux_pipewire(&src_dir);
-                generate_bindings(
-                    &src_dir.join("video_pipewire.h"),
-                    "bindings_pipewire.rs",
-                    &out_dir,
-                );
+            }
+            if has_v4l2 || has_pipewire {
+                let mut builder = Builder::default();
+                if has_v4l2 {
+                    builder = builder.header(
+                        src_dir.join("video_v4l2.h").to_str().unwrap(),
+                    );
+                }
+                if has_pipewire {
+                    builder = builder.header(
+                        src_dir.join("video_pipewire.h").to_str().unwrap(),
+                    );
+                }
+                generate_bindings(builder, "bindings_linux.rs", &out_dir);
             }
         }
         "windows" => {
@@ -41,13 +54,11 @@ fn build_macos(src_dir: &Path) {
     println!("cargo::rerun-if-changed=src/video_avf.h");
     println!("cargo::rerun-if-changed=src/video_common.h");
 
-    // Objective-C ファイルをコンパイル
     cc::Build::new()
         .file(src_dir.join("video_avf.m"))
         .flag("-fobjc-arc")
         .compile("video_avf");
 
-    // macOS フレームワークをリンク
     println!("cargo::rustc-link-lib=framework=AVFoundation");
     println!("cargo::rustc-link-lib=framework=CoreFoundation");
     println!("cargo::rustc-link-lib=framework=CoreMedia");
@@ -60,12 +71,10 @@ fn build_linux_v4l2(src_dir: &Path) {
     println!("cargo::rerun-if-changed=src/video_v4l2.h");
     println!("cargo::rerun-if-changed=src/video_common.h");
 
-    // V4L2 C ファイルをコンパイル
     cc::Build::new()
         .file(src_dir.join("video_v4l2.c"))
         .compile("video_v4l2");
 
-    // pthread をリンク
     println!("cargo::rustc-link-lib=pthread");
 }
 
@@ -88,9 +97,8 @@ fn build_linux_pipewire(src_dir: &Path) {
     build.compile("video_pipewire");
 }
 
-fn generate_bindings(header: &Path, out_file: &str, out_dir: &Path) {
-    let bindings = bindgen::Builder::default()
-        .header(header.to_str().unwrap())
+fn generate_bindings(builder: Builder, out_file: &str, out_dir: &Path) {
+    let bindings = builder
         .allowlist_function("video_.*")
         .allowlist_type("VideoDevice")
         .allowlist_type("VideoSession")
