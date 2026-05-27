@@ -1,18 +1,18 @@
 //! Linux V4L2 用のビデオデバイス列挙。
 
+use crate::device_common::{DeviceInner, DeviceListInner, DeviceOps};
 use crate::error::Result;
 use crate::ffi;
 use crate::types::VideoFormat;
-use crate::device_common::{DeviceInner, DeviceListInner, DeviceOps};
 
 /// V4L2 の FFI 関数テーブル。
 const OPS: DeviceOps = DeviceOps {
-    device_name:        ffi::video_v4l2_device_name,
-    device_unique_id:   ffi::video_v4l2_device_unique_id,
+    device_name: ffi::video_v4l2_device_name,
+    device_unique_id: ffi::video_v4l2_device_unique_id,
     device_format_count: ffi::video_v4l2_device_format_count,
-    device_get_format:  ffi::video_v4l2_device_get_format,
-    enumerate_devices:  ffi::video_v4l2_enumerate_devices,
-    free_devices:       ffi::video_v4l2_free_devices,
+    device_get_format: ffi::video_v4l2_device_get_format,
+    enumerate_devices: ffi::video_v4l2_enumerate_devices,
+    free_devices: ffi::video_v4l2_free_devices,
 };
 
 /// Linux V4L2 ビデオデバイス。
@@ -52,7 +52,10 @@ impl V4l2VideoDeviceList {
             .iter()
             .map(|d| V4l2VideoDevice { inner: *d })
             .collect();
-        Ok(Self { _inner: inner, devices })
+        Ok(Self {
+            _inner: inner,
+            devices,
+        })
     }
 }
 

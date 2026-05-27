@@ -1,15 +1,15 @@
 //! Linux V4L2 用のビデオキャプチャ。
 
+use crate::capture_common::{CaptureInner, CaptureOps};
 use crate::error::Result;
 use crate::ffi;
 use crate::types::{VideoCaptureConfig, VideoFrame};
-use crate::capture_common::{CaptureInner, CaptureOps};
 
 /// V4L2 の FFI 関数テーブル。
 const OPS: CaptureOps = CaptureOps {
-    session_create:  ffi::video_v4l2_session_create,
-    session_start:   ffi::video_v4l2_session_start,
-    session_stop:    ffi::video_v4l2_session_stop,
+    session_create: ffi::video_v4l2_session_create,
+    session_start: ffi::video_v4l2_session_start,
+    session_stop: ffi::video_v4l2_session_stop,
     session_destroy: ffi::video_v4l2_session_destroy,
 };
 

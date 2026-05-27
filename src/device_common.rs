@@ -35,15 +35,10 @@ pub(crate) struct DeviceOps {
         index: i32,
     ) -> *const ffi::VideoFormatEntry,
     /// システム上の全デバイスを列挙し、ポインタ配列と要素数を出力パラメータで返す。
-    pub enumerate_devices: unsafe extern "C" fn(
-        devices_ptr: *mut *mut *mut ffi::VideoDevice,
-        count: *mut i32,
-    ) -> i32,
+    pub enumerate_devices:
+        unsafe extern "C" fn(devices_ptr: *mut *mut *mut ffi::VideoDevice, count: *mut i32) -> i32,
     /// `enumerate_devices` で確保されたポインタ配列を解放する。
-    pub free_devices: unsafe extern "C" fn(
-        devices_ptr: *mut *mut ffi::VideoDevice,
-        count: i32,
-    ),
+    pub free_devices: unsafe extern "C" fn(devices_ptr: *mut *mut ffi::VideoDevice, count: i32),
 }
 
 // ---------------------------------------------------------------------------
@@ -102,9 +97,7 @@ impl VideoDevice for DeviceInner<'_> {
         for i in 0..count {
             // SAFETY: i は [0, count) の範囲であり、C 側が有効なインデックスに対して
             // フォーマット情報を返すことを保証している。
-            let format_ptr = unsafe {
-                (self.ops.device_get_format)(self.raw.as_ptr(), i as i32)
-            };
+            let format_ptr = unsafe { (self.ops.device_get_format)(self.raw.as_ptr(), i as i32) };
             if format_ptr.is_null() {
                 continue;
             }

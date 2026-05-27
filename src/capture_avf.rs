@@ -1,15 +1,15 @@
 //! macOS AVFoundation 用のビデオキャプチャ。
 
+use crate::capture_common::{CaptureInner, CaptureOps};
 use crate::error::Result;
 use crate::ffi;
 use crate::types::{VideoCaptureConfig, VideoFrame};
-use crate::capture_common::{CaptureInner, CaptureOps};
 
 /// AVFoundation の FFI 関数テーブル。
 const OPS: CaptureOps = CaptureOps {
-    session_create:  ffi::video_avf_session_create,
-    session_start:   ffi::video_avf_session_start,
-    session_stop:    ffi::video_avf_session_stop,
+    session_create: ffi::video_avf_session_create,
+    session_start: ffi::video_avf_session_start,
+    session_stop: ffi::video_avf_session_stop,
     session_destroy: ffi::video_avf_session_destroy,
 };
 

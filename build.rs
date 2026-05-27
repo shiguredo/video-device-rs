@@ -11,9 +11,7 @@ fn main() {
     match target_os.as_str() {
         "macos" => {
             build_macos(&src_dir);
-            let builder = Builder::default().header(
-                src_dir.join("video_avf.h").to_str().unwrap(),
-            );
+            let builder = Builder::default().header(src_dir.join("video_avf.h").to_str().unwrap());
             generate_bindings(builder, "bindings_macos.rs", &out_dir);
         }
         "linux" => {
@@ -29,14 +27,10 @@ fn main() {
             if has_v4l2 || has_pipewire {
                 let mut builder = Builder::default();
                 if has_v4l2 {
-                    builder = builder.header(
-                        src_dir.join("video_v4l2.h").to_str().unwrap(),
-                    );
+                    builder = builder.header(src_dir.join("video_v4l2.h").to_str().unwrap());
                 }
                 if has_pipewire {
-                    builder = builder.header(
-                        src_dir.join("video_pipewire.h").to_str().unwrap(),
-                    );
+                    builder = builder.header(src_dir.join("video_pipewire.h").to_str().unwrap());
                 }
                 generate_bindings(builder, "bindings_linux.rs", &out_dir);
             }

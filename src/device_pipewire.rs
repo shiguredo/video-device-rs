@@ -1,18 +1,18 @@
 //! Linux PipeWire 用のビデオデバイス列挙。
 
+use crate::device_common::{DeviceInner, DeviceListInner, DeviceOps};
 use crate::error::Result;
 use crate::ffi;
 use crate::types::VideoFormat;
-use crate::device_common::{DeviceInner, DeviceListInner, DeviceOps};
 
 /// PipeWire の FFI 関数テーブル。
 const OPS: DeviceOps = DeviceOps {
-    device_name:        ffi::video_pipewire_device_name,
-    device_unique_id:   ffi::video_pipewire_device_unique_id,
+    device_name: ffi::video_pipewire_device_name,
+    device_unique_id: ffi::video_pipewire_device_unique_id,
     device_format_count: ffi::video_pipewire_device_format_count,
-    device_get_format:  ffi::video_pipewire_device_get_format,
-    enumerate_devices:  ffi::video_pipewire_enumerate_devices,
-    free_devices:       ffi::video_pipewire_free_devices,
+    device_get_format: ffi::video_pipewire_device_get_format,
+    enumerate_devices: ffi::video_pipewire_enumerate_devices,
+    free_devices: ffi::video_pipewire_free_devices,
 };
 
 /// Linux PipeWire ビデオデバイス。
@@ -52,7 +52,10 @@ impl PipewireVideoDeviceList {
             .iter()
             .map(|d| PipewireVideoDevice { inner: *d })
             .collect();
-        Ok(Self { _inner: inner, devices })
+        Ok(Self {
+            _inner: inner,
+            devices,
+        })
     }
 }
 
