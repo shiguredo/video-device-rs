@@ -430,6 +430,19 @@ fn capture_thread_func(
     callback
 }
 
+/// Lock 済みの IMFMediaBuffer を保持し、Drop 時に Unlock する RAII ガード。
+struct BufGuard {
+    buffer: IMFMediaBuffer,
+}
+
+impl Drop for BufGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.buffer.Unlock();
+        }
+    }
+}
+
 /// サンプルを処理
 unsafe fn process_sample(
     sample: &IMFSample,
@@ -461,13 +474,14 @@ unsafe fn process_sample(
             return;
         }
 
+        // Lock 成功以降は BufGuard が自動で Unlock する
+        let _buf_guard = BufGuard { buffer };
+
         if data_ptr.is_null() {
-            let _ = buffer.Unlock();
             return;
         }
 
         if width <= 0 || height <= 0 {
-            let _ = buffer.Unlock();
             return;
         }
 
@@ -476,15 +490,12 @@ unsafe fn process_sample(
         let frame = match pixel_format {
             PixelFormat::Nv12 => {
                 let Some(required) = frame_math::nv12_packed_frame_bytes(width, height) else {
-                    let _ = buffer.Unlock();
                     return;
                 };
                 if data.len() < required {
-                    let _ = buffer.Unlock();
                     return;
                 }
                 let Some(y_size) = (width as usize).checked_mul(height as usize) else {
-                    let _ = buffer.Unlock();
                     return;
                 };
                 let y_data = &data[..y_size];
@@ -504,15 +515,12 @@ unsafe fn process_sample(
             }
             PixelFormat::I420 => {
                 let Some(required) = frame_math::i420_packed_frame_bytes(width, height) else {
-                    let _ = buffer.Unlock();
                     return;
                 };
                 if data.len() < required {
-                    let _ = buffer.Unlock();
                     return;
                 }
                 let Some(y_size) = (width as usize).checked_mul(height as usize) else {
-                    let _ = buffer.Unlock();
                     return;
                 };
                 let y_data = &data[..y_size];
@@ -532,15 +540,12 @@ unsafe fn process_sample(
             }
             PixelFormat::Yuy2 => {
                 let Some(required) = frame_math::yuy2_packed_frame_bytes_win(width, height) else {
-                    let _ = buffer.Unlock();
                     return;
                 };
                 if data.len() < required {
-                    let _ = buffer.Unlock();
                     return;
                 }
                 let Some(stride) = width.checked_mul(2) else {
-                    let _ = buffer.Unlock();
                     return;
                 };
                 VideoFrame {
@@ -555,17 +560,9 @@ unsafe fn process_sample(
                     pixel_buffer: None,
                 }
             }
-            PixelFormat::Unknown(_) => {
-                let _ = buffer.Unlock();
-                return;
-            }
+            PixelFormat::Unknown(_) => return,
         };
 
-        // ユーザコールバックが panic しても Unlock を確実に実行する
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            callback(frame);
-        }));
-
-        let _ = buffer.Unlock();
+        callback(frame);
     }
 }

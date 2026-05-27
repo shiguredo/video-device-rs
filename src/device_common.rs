@@ -19,7 +19,6 @@ use crate::types::{PixelFormat, VideoFormat};
 
 /// バックエンド固有の FFI 関数テーブル。
 ///
-/// デバイス型は全バックエンドで [`ffi::VideoDevice`] に統一されている。
 /// 各プラットフォームファイル（`device_avf.rs` 等）で `const` として
 /// 1 つだけ定義し、`DeviceInner` / `DeviceListInner` に `&'static` で渡す。
 pub(crate) struct DeviceOps {
@@ -68,8 +67,11 @@ impl VideoDevice for DeviceInner<'_> {
             return Err(Error::NullPointer("device name"));
         }
         // SAFETY: C 側が返す文字列は NUL 終端であり、デバイスリストのライフタイム中有効。
-        let name = unsafe { CStr::from_ptr(name_ptr) };
-        Ok(name.to_string_lossy().into_owned())
+        let name = unsafe { CStr::from_ptr(name_ptr) }
+            .to_str()
+            .map_err(|_| Error::InvalidUtf8("device name"))?
+            .to_owned();
+        Ok(name)
     }
 
     fn unique_id(&self) -> Result<String> {
@@ -78,8 +80,11 @@ impl VideoDevice for DeviceInner<'_> {
         if id_ptr.is_null() {
             return Err(Error::NullPointer("device unique_id"));
         }
-        let id = unsafe { CStr::from_ptr(id_ptr) };
-        Ok(id.to_string_lossy().into_owned())
+        let id = unsafe { CStr::from_ptr(id_ptr) }
+            .to_str()
+            .map_err(|_| Error::InvalidUtf8("device unique_id"))?
+            .to_owned();
+        Ok(id)
     }
 
     fn format_count(&self) -> usize {
@@ -151,26 +156,22 @@ impl DeviceListInner {
         // SAFETY: C 側が出力パラメータに有効なポインタを書き込むことを期待する。
         // devices_ptr が NULL でない場合、呼び出し側が free_devices で解放する責任を負う。
         let ret = unsafe { (ops.enumerate_devices)(&mut devices_ptr, &mut count) };
-        if ret < 0 {
+        if ret < 0 || device_ptr.is_null() {
             return Err(Error::DeviceAccessDenied);
         }
 
-        let devices: Vec<DeviceInner<'static>> = if count > 0 && !devices_ptr.is_null() {
-            (0..count as usize)
-                .filter_map(|i| {
-                    // SAFETY: i は [0, count) の範囲であり、C 側が有効な配列を保証する。
-                    // NULL エントリはフィルタで除外する（一部のバックエンドで発生しうる）。
-                    let device_ptr = unsafe { *devices_ptr.add(i) };
-                    NonNull::new(device_ptr).map(|raw| DeviceInner {
-                        ops,
-                        raw,
-                        _phantom: PhantomData,
-                    })
+        let devices: Vec<DeviceInner<'static>> = (0..count as usize)
+            .filter_map(|i| {
+                // SAFETY: i は [0, count) の範囲であり、C 側が有効な配列を保証する。
+                // NULL エントリはフィルタで除外する（一部のバックエンドで発生しうる）。
+                let device_ptr = unsafe { *devices_ptr.add(i) };
+                NonNull::new(device_ptr).map(|raw| DeviceInner {
+                    ops,
+                    raw,
+                    _phantom: PhantomData,
                 })
-                .collect()
-        } else {
-            Vec::new()
-        };
+            })
+            .collect();
 
         Ok(Self {
             ops,

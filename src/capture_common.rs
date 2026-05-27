@@ -6,7 +6,6 @@
 
 use std::ffi::{CString, c_char, c_void};
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::VideoCapture;
 use crate::error::{Error, Result};
@@ -20,7 +19,6 @@ use crate::types::{PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFrame};
 
 /// バックエンド固有の FFI 関数テーブル。
 ///
-/// セッション型は全バックエンドで [`ffi::VideoSession`] に統一されている。
 /// 各プラットフォームファイル（`capture_avf.rs` 等）で `const` として
 /// 1 つだけ定義し、`CaptureInner` に `&'static` で渡す。
 pub(crate) struct CaptureOps {
@@ -55,8 +53,6 @@ pub(crate) struct CaptureOps {
 pub(crate) struct CaptureContext {
     /// ユーザーが登録したフレームコールバック。
     pub callback: Box<dyn Fn(VideoFrame<'_>) + Send + 'static>,
-    /// キャプチャが実行中かどうかのフラグ。
-    pub running: AtomicBool,
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +71,8 @@ pub(crate) struct CaptureInner {
     context: Option<Box<CaptureContext>>,
     /// キャプチャ設定。
     config: VideoCaptureConfig,
+    /// キャプチャが実行中かどうかのフラグ。
+    running: bool,
 }
 
 impl CaptureInner {
@@ -120,7 +118,6 @@ impl CaptureInner {
 
         let context = Box::new(CaptureContext {
             callback: Box::new(callback),
-            running: AtomicBool::new(false),
         });
 
         Ok(Self {
@@ -128,6 +125,7 @@ impl CaptureInner {
             session: Some(session),
             context: Some(context),
             config,
+            running: false,
         })
     }
 }
@@ -137,7 +135,7 @@ impl VideoCapture for CaptureInner {
         let session = self.session.ok_or(Error::SessionStartFailed)?;
         let context = self.context.as_mut().ok_or(Error::SessionStartFailed)?;
 
-        if context.running.load(Ordering::Acquire) {
+        if self.running {
             return Ok(());
         }
 
@@ -154,19 +152,17 @@ impl VideoCapture for CaptureInner {
             return Err(Error::SessionStartFailed);
         }
 
-        context.running.store(true, Ordering::Release);
+        self.running = true;
         Ok(())
     }
 
     fn stop(&mut self) {
-        if let Some(context) = &self.context
-            && context.running.load(Ordering::Acquire)
-        {
+        if self.running {
             if let Some(session) = self.session {
                 // SAFETY: session は start() 呼び出し時に作成された有効なポインタ。
                 unsafe { (self.ops.session_stop)(session.as_ptr()) };
             }
-            context.running.store(false, Ordering::Release);
+            self.running = false;
         }
     }
 
@@ -197,11 +193,7 @@ unsafe impl Send for CaptureInner {}
 
 /// C 側からフレームデータを受け取り、ユーザーの Rust コールバックに橋渡しする。
 ///
-/// この関数は全バックエンド（AVF / PipeWire / V4L2）で同一の実装であり、
-/// `user_data` には `Box<CaptureContext>` へのポインタが渡される。
-///
-/// シグネチャは `ffi::FrameCallback`（`unsafe extern "C" fn`）に一致するが、
-/// 本関数は `extern "C" fn` として宣言し、呼び出し側で暗黙に型強制される。
+/// `user_data` には `CaptureContext` へのポインタが渡される。
 extern "C" fn frame_callback(
     user_data: *mut c_void,
     data: *const u8,
@@ -302,9 +294,5 @@ extern "C" fn frame_callback(
         PixelFormat::Unknown(_) => return,
     };
 
-    // SAFETY: ユーザーコールバックが panic すると extern "C" 境界を越えて
-    // unwind し未定義動作になるため、catch_unwind で防ぐ。
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        (context.callback)(frame);
-    }));
+    (context.callback)(frame);
 }

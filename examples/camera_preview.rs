@@ -30,7 +30,6 @@ use shiguredo_video_device::PipewireVideoCapture;
 #[cfg(all(target_os = "linux", feature = "v4l2"))]
 use shiguredo_video_device::V4l2VideoCapture;
 
-// バックエンド別の具象型の略称を解決し、サンプルコードを簡潔にする
 #[cfg(all(target_os = "linux", feature = "v4l2"))]
 type CurrentVideoCapture = V4l2VideoCapture;
 #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
@@ -212,6 +211,7 @@ fn strip_stride<'a>(
 
 /// デバイス列挙結果を表示する共通処理
 fn print_device_list(list: &impl VideoDeviceList) {
+    println!("=== 映像デバイス一覧 ===");
     if list.is_empty() {
         println!("  映像デバイスが見つかりません");
         return;
@@ -308,35 +308,15 @@ fn main() {
     let args = parse_args();
 
     if args.list_devices {
-        println!("=== 映像デバイス一覧 ===");
         #[cfg(all(target_os = "linux", feature = "v4l2"))]
-        {
-            print_device_list(
-                &shiguredo_video_device::V4l2VideoDeviceList::enumerate()
-                    .expect("デバイスの列挙に失敗しました"),
-            );
-        }
+        let device_list = shiguredo_video_device::V4l2VideoDeviceList::enumerate();
         #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-        {
-            print_device_list(
-                &shiguredo_video_device::PipewireVideoDeviceList::enumerate()
-                    .expect("デバイスの列挙に失敗しました"),
-            );
-        }
+        let device_list = shiguredo_video_device::PipewireVideoDeviceList::enumerate();
         #[cfg(target_os = "macos")]
-        {
-            print_device_list(
-                &shiguredo_video_device::AvfVideoDeviceList::enumerate()
-                    .expect("デバイスの列挙に失敗しました"),
-            );
-        }
+        let device_list = shiguredo_video_device::AvfVideoDeviceList::enumerate();
         #[cfg(target_os = "windows")]
-        {
-            print_device_list(
-                &shiguredo_video_device::MfVideoDeviceList::enumerate()
-                    .expect("デバイスの列挙に失敗しました"),
-            );
-        }
+        let device_list = shiguredo_video_device::MfVideoDeviceList::enumerate();
+        print_device_list(&device_list.expect("デバイスの列挙に失敗しました"));
         return;
     }
 
