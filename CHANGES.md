@@ -24,6 +24,8 @@
 
 ### misc
 
+- [CHANGE] `windows-2025` を `windows-2025-vs2026` にリネームする
+  - @voluntas
 
 ## 2026.1.0
 
