@@ -1,25 +1,16 @@
 use std::collections::{BTreeSet, HashMap};
 
-use shiguredo_video_device::{PixelFormat, VideoDevice, VideoDeviceList};
-
-#[cfg(target_os = "macos")]
-use shiguredo_video_device::AvfVideoDeviceList;
-#[cfg(target_os = "windows")]
-use shiguredo_video_device::MfVideoDeviceList;
-#[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-use shiguredo_video_device::PipewireVideoDeviceList;
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
-use shiguredo_video_device::V4l2VideoDeviceList;
+use shiguredo_video_device::{PixelFormat, VideoDeviceList};
 
 fn main() {
     #[cfg(all(target_os = "linux", feature = "v4l2"))]
-    let device_list = V4l2VideoDeviceList::enumerate();
+    let device_list = VideoDeviceList::enumerate_v4l2();
     #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-    let device_list = PipewireVideoDeviceList::enumerate();
+    let device_list = VideoDeviceList::enumerate_pipewire();
     #[cfg(target_os = "macos")]
-    let device_list = AvfVideoDeviceList::enumerate();
+    let device_list = VideoDeviceList::enumerate_avf();
     #[cfg(target_os = "windows")]
-    let device_list = MfVideoDeviceList::enumerate();
+    let device_list = VideoDeviceList::enumerate_mf();
 
     let device_list = match device_list {
         Ok(list) => list,

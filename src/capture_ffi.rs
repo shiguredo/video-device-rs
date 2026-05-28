@@ -1,13 +1,11 @@
 //! macOS / Linux 共通のビデオキャプチャ実装。
 //!
-//! バックエンドごとに FFI 関数群を [`CaptureOps`] で渡し、`CaptureInner` が
-//! `VideoCapture` の実装を一括で提供する。各プラットフォームファイルは [`CaptureOps`] の
-//! 定数定義と newtype ラッパーのみを持つ。
+//! バックエンドごとに FFI 関数群を [`CaptureOps`] で渡し、[`FfiCaptureImpl`] が
+//! キャプチャの実装を一括で提供する。
 
 use std::ffi::{CString, c_char, c_void};
 use std::ptr::NonNull;
 
-use crate::VideoCapture;
 use crate::error::{Error, Result};
 use crate::ffi;
 use crate::frame_math;
@@ -19,9 +17,9 @@ use crate::types::{PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFrame};
 
 /// バックエンド固有の FFI 関数テーブル。
 ///
-/// 各プラットフォームファイル（`capture_avf.rs` 等）で `const` として
-/// 1 つだけ定義し、`CaptureInner` に `&'static` で渡す。
-pub(crate) struct CaptureOps {
+/// 各プラットフォームの FFI OPS は本ファイル末尾で `const` として定義し、
+/// `FfiCaptureImpl` に `&'static` で渡す。
+struct CaptureOps {
     /// キャプチャセッションを生成する。
     pub session_create: unsafe extern "C" fn(
         device_id: *const c_char,
@@ -62,7 +60,7 @@ pub(crate) struct CaptureContext {
 /// バックエンド非依存のキャプチャ実装。
 ///
 /// すべての FFI 呼び出しは `ops` に格納された関数ポインタ経由で行われる。
-pub(crate) struct CaptureInner {
+pub(crate) struct FfiCaptureImpl {
     /// バックエンドの FFI 関数テーブル。
     ops: &'static CaptureOps,
     /// キャプチャセッション（`new()` で生成し `Drop` で破棄）。
@@ -75,14 +73,15 @@ pub(crate) struct CaptureInner {
     running: bool,
 }
 
-impl CaptureInner {
+impl FfiCaptureImpl {
     /// キャプチャを構築する。
     ///
     /// この時点ではキャプチャスレッドは起動せず、`start()` が呼ばれるまで待機する。
-    pub fn new<F>(ops: &'static CaptureOps, config: VideoCaptureConfig, callback: F) -> Result<Self>
-    where
-        F: Fn(VideoFrame<'_>) + Send + 'static,
-    {
+    fn new(
+        ops: &'static CaptureOps,
+        config: VideoCaptureConfig,
+        callback: impl Fn(VideoFrame<'_>) + Send + 'static,
+    ) -> Result<Self> {
         // 不明なピクセルフォーマットが指定された場合は早期に拒否する
         let requested_pixel_format = match config.pixel_format {
             Some(pixel_format @ PixelFormat::Unknown(_)) => {
@@ -128,10 +127,44 @@ impl CaptureInner {
             running: false,
         })
     }
+
+    /// macOS AVFoundation でキャプチャを構築する。
+    #[cfg(target_os = "macos")]
+    pub(crate) fn new_avf<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+    where
+        F: Fn(VideoFrame<'_>) + Send + 'static,
+    {
+        Self::new(&OPS_AVF, config, callback)
+    }
+
+    /// Linux V4L2 でキャプチャを構築する。
+    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    pub(crate) fn new_v4l2<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+    where
+        F: Fn(VideoFrame<'_>) + Send + 'static,
+    {
+        Self::new(&OPS_V4L2, config, callback)
+    }
+
+    /// Linux PipeWire でキャプチャを構築する。
+    #[cfg(all(target_os = "linux", feature = "pipewire"))]
+    pub(crate) fn new_pipewire<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+    where
+        F: Fn(VideoFrame<'_>) + Send + 'static,
+    {
+        Self::new(&OPS_PIPEWIRE, config, callback)
+    }
 }
 
-impl VideoCapture for CaptureInner {
-    fn start(&mut self) -> Result<()> {
+impl FfiCaptureImpl {
+    /// キャプチャを開始する。
+    ///
+    /// 冪等: 既に running 状態であれば `Ok(())` を返す。
+    /// `stop` 後の再 `start` は許容する。
+    ///
+    /// PipeWire バックエンドでは内部でストリーミング状態になるまでブロックする。
+    /// 他バックエンドでは即座に復帰する。
+    pub fn start(&mut self) -> Result<()> {
         let session = self.session.ok_or(Error::SessionStartFailed)?;
         let context = self.context.as_mut().ok_or(Error::SessionStartFailed)?;
 
@@ -143,7 +176,7 @@ impl VideoCapture for CaptureInner {
 
         // SAFETY: session は NonNull で保証された有効なポインタ。
         // context_ptr は Box<CaptureContext> から取得したポインタであり、
-        // CaptureInner のライフタイムの間は有効。
+        // FfiCaptureImpl のライフタイムの間は有効。
         let ret = unsafe {
             (self.ops.session_start)(session.as_ptr(), Some(frame_callback), context_ptr)
         };
@@ -156,7 +189,11 @@ impl VideoCapture for CaptureInner {
         Ok(())
     }
 
-    fn stop(&mut self) {
+    /// キャプチャを停止する。
+    ///
+    /// ブロッキング: 全バックエンドでキャプチャスレッド/コールバックの完了を待機してから復帰する。
+    /// running でない状態の場合は no-op。
+    pub fn stop(&mut self) {
         if self.running {
             if let Some(session) = self.session {
                 // SAFETY: session は start() 呼び出し時に作成された有効なポインタ。
@@ -166,12 +203,13 @@ impl VideoCapture for CaptureInner {
         }
     }
 
-    fn config(&self) -> &VideoCaptureConfig {
+    /// キャプチャ設定を取得する。
+    pub fn config(&self) -> &VideoCaptureConfig {
         &self.config
     }
 }
 
-impl Drop for CaptureInner {
+impl Drop for FfiCaptureImpl {
     fn drop(&mut self) {
         self.stop();
         if let Some(session) = self.session.take() {
@@ -185,7 +223,7 @@ impl Drop for CaptureInner {
 // CaptureContext のコールバックは Box<dyn Fn + Send> でスレッド安全。
 // 全バックエンドでキャプチャは専用スレッド上で動作するため、本構造体の
 // スレッド間移動は安全。
-unsafe impl Send for CaptureInner {}
+unsafe impl Send for FfiCaptureImpl {}
 
 // ---------------------------------------------------------------------------
 // extern "C" フレームコールバック（全バックエンド共通）
@@ -213,8 +251,8 @@ extern "C" fn frame_callback(
         return;
     }
 
-    // SAFETY: user_data は CaptureInner::start() で Box<CaptureContext> から
-    // 取得したポインタであり、CaptureInner のライフタイム中は有効。
+    // SAFETY: user_data は FfiCaptureImpl::start() で Box<CaptureContext> から
+    // 取得したポインタであり、FfiCaptureImpl のライフタイム中は有効。
     let context = unsafe { &*(user_data as *const CaptureContext) };
 
     let pf = PixelFormat::from_raw(pixel_format);
@@ -296,3 +334,34 @@ extern "C" fn frame_callback(
 
     (context.callback)(frame);
 }
+
+// ---------------------------------------------------------------------------
+// バックエンド別 OPS 定数
+// ---------------------------------------------------------------------------
+
+/// macOS AVFoundation 用の CaptureOps。
+#[cfg(target_os = "macos")]
+const OPS_AVF: CaptureOps = CaptureOps {
+    session_create: ffi::video_avf_session_create,
+    session_start: ffi::video_avf_session_start,
+    session_stop: ffi::video_avf_session_stop,
+    session_destroy: ffi::video_avf_session_destroy,
+};
+
+/// Linux V4L2 用の CaptureOps。
+#[cfg(all(target_os = "linux", feature = "v4l2"))]
+const OPS_V4L2: CaptureOps = CaptureOps {
+    session_create: ffi::video_v4l2_session_create,
+    session_start: ffi::video_v4l2_session_start,
+    session_stop: ffi::video_v4l2_session_stop,
+    session_destroy: ffi::video_v4l2_session_destroy,
+};
+
+/// Linux PipeWire 用の CaptureOps。
+#[cfg(all(target_os = "linux", feature = "pipewire"))]
+const OPS_PIPEWIRE: CaptureOps = CaptureOps {
+    session_create: ffi::video_pipewire_session_create,
+    session_start: ffi::video_pipewire_session_start,
+    session_stop: ffi::video_pipewire_session_stop,
+    session_destroy: ffi::video_pipewire_session_destroy,
+};

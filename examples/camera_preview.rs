@@ -16,28 +16,8 @@ use std::time::Instant;
 
 use raw_player::{KEYCODE_ESCAPE, VideoPlayer};
 use shiguredo_video_device::{
-    PixelFormat, VideoCapture, VideoCaptureConfig, VideoDevice, VideoDeviceList, VideoFrame,
-    VideoFrameOwned,
+    PixelFormat, VideoCapture, VideoCaptureConfig, VideoDeviceList, VideoFrame, VideoFrameOwned,
 };
-
-// バックエンド別の具象型を feature flag に応じて選択
-#[cfg(target_os = "macos")]
-use shiguredo_video_device::AvfVideoCapture;
-#[cfg(target_os = "windows")]
-use shiguredo_video_device::MfVideoCapture;
-#[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-use shiguredo_video_device::PipewireVideoCapture;
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
-use shiguredo_video_device::V4l2VideoCapture;
-
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
-type CurrentVideoCapture = V4l2VideoCapture;
-#[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-type CurrentVideoCapture = PipewireVideoCapture;
-#[cfg(target_os = "macos")]
-type CurrentVideoCapture = AvfVideoCapture;
-#[cfg(target_os = "windows")]
-type CurrentVideoCapture = MfVideoCapture;
 
 struct Args {
     list_devices: bool,
@@ -210,7 +190,7 @@ fn strip_stride<'a>(
 }
 
 /// デバイス列挙結果を表示する共通処理
-fn print_device_list(list: &impl VideoDeviceList) {
+fn print_device_list(list: &VideoDeviceList) {
     println!("=== 映像デバイス一覧 ===");
     if list.is_empty() {
         println!("  映像デバイスが見つかりません");
@@ -309,13 +289,13 @@ fn main() {
 
     if args.list_devices {
         #[cfg(all(target_os = "linux", feature = "v4l2"))]
-        let device_list = shiguredo_video_device::V4l2VideoDeviceList::enumerate();
+        let device_list = VideoDeviceList::enumerate_v4l2();
         #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-        let device_list = shiguredo_video_device::PipewireVideoDeviceList::enumerate();
+        let device_list = VideoDeviceList::enumerate_pipewire();
         #[cfg(target_os = "macos")]
-        let device_list = shiguredo_video_device::AvfVideoDeviceList::enumerate();
+        let device_list = VideoDeviceList::enumerate_avf();
         #[cfg(target_os = "windows")]
-        let device_list = shiguredo_video_device::MfVideoDeviceList::enumerate();
+        let device_list = VideoDeviceList::enumerate_mf();
         print_device_list(&device_list.expect("デバイスの列挙に失敗しました"));
         return;
     }
@@ -332,7 +312,7 @@ fn main() {
         fps: args.fps,
         pixel_format: None,
     };
-    let mut video_capture = CurrentVideoCapture::new(video_config, move |frame: VideoFrame<'_>| {
+    let callback = move |frame: VideoFrame<'_>| {
         if tx.try_send(frame.to_owned()).is_err() {
             static DROP_LOG: Once = Once::new();
             DROP_LOG.call_once(|| {
@@ -341,8 +321,19 @@ fn main() {
                 );
             });
         }
-    })
-    .expect("VideoCapture の作成に失敗しました");
+    };
+    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    let mut video_capture =
+        VideoCapture::new_v4l2(video_config, callback).expect("VideoCapture の作成に失敗しました");
+    #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+    let mut video_capture = VideoCapture::new_pipewire(video_config, callback)
+        .expect("VideoCapture の作成に失敗しました");
+    #[cfg(target_os = "macos")]
+    let mut video_capture =
+        VideoCapture::new_avf(video_config, callback).expect("VideoCapture の作成に失敗しました");
+    #[cfg(target_os = "windows")]
+    let mut video_capture =
+        VideoCapture::new_mf(video_config, callback).expect("VideoCapture の作成に失敗しました");
 
     // VideoPlayer を作成
     let title = format!(

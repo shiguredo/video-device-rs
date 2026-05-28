@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use windows::{Win32::Media::MediaFoundation::*, core::GUID};
 
-use crate::VideoCapture;
 use crate::error::{Error, Result};
 use crate::frame_math;
 use crate::types::{
@@ -37,8 +36,8 @@ type VideoFrameCallback = Box<dyn Fn(VideoFrame<'_>) + Send + 'static>;
 
 /// Windows 用ビデオキャプチャ (Media Foundation)。
 ///
-/// [`MfVideoCapture::stop`] をフレームコールバック内から呼ばないこと（キャプチャスレッドが自身を `join` しデッドロックしうる）。
-pub struct MfVideoCapture {
+/// [`MfCaptureImpl::stop`] をフレームコールバック内から呼ばないこと（キャプチャスレッドが自身を `join` しデッドロックしうる）。
+pub(crate) struct MfCaptureImpl {
     session: Option<SessionData>,
     running: Arc<AtomicBool>,
     callback: Option<VideoFrameCallback>,
@@ -58,8 +57,12 @@ fn validate_capture_config_for_windows(config: &VideoCaptureConfig) -> Result<()
     Ok(())
 }
 
-impl VideoCapture for MfVideoCapture {
-    fn start(&mut self) -> Result<()> {
+impl MfCaptureImpl {
+    /// キャプチャを開始する。
+    ///
+    /// 冪等: 既に running 状態であれば `Ok(())` を返す。
+    /// `stop` 後の再 `start` は許容する。
+    pub fn start(&mut self) -> Result<()> {
         let session = self.session.as_ref().ok_or(Error::SessionStartFailed)?;
         let callback = self.callback.take();
 
@@ -94,7 +97,11 @@ impl VideoCapture for MfVideoCapture {
         Ok(())
     }
 
-    fn stop(&mut self) {
+    /// キャプチャを停止する。
+    ///
+    /// ブロッキング: キャプチャスレッド/コールバックの完了を待機してから復帰する。
+    /// running でない状態の場合は no-op。
+    pub fn stop(&mut self) {
         if self.running.load(Ordering::Acquire) {
             self.running.store(false, Ordering::Release);
 
@@ -107,12 +114,13 @@ impl VideoCapture for MfVideoCapture {
         }
     }
 
-    fn config(&self) -> &VideoCaptureConfig {
+    /// キャプチャ設定を取得する。
+    pub fn config(&self) -> &VideoCaptureConfig {
         &self.config
     }
 }
 
-impl MfVideoCapture {
+impl MfCaptureImpl {
     pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
@@ -173,7 +181,7 @@ impl MfVideoCapture {
     }
 }
 
-impl Drop for MfVideoCapture {
+impl Drop for MfCaptureImpl {
     fn drop(&mut self) {
         self.stop();
 

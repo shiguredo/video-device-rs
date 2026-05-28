@@ -14,6 +14,8 @@
 //! **キャプチャコールバック内から** `stop` を呼ばないでください。
 //! 特に Windows ではキャプチャスレッドが `join` 自身しデッドロックしうるためです。
 
+mod capture;
+mod device;
 mod error;
 mod frame_math;
 mod types;
@@ -30,41 +32,9 @@ mod capture_mf;
 #[cfg(target_os = "windows")]
 mod device_mf;
 
+pub use capture::VideoCapture;
+pub use device::{VideoDevice, VideoDeviceList};
 pub use error::{Error, Result};
 pub use types::{
-    PixelBuffer, PixelFormat, VideoCapture, VideoCaptureConfig, VideoDevice, VideoDeviceList,
-    VideoFormat, VideoFrame, VideoFrameOwned,
+    PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFormat, VideoFrame, VideoFrameOwned,
 };
-
-// バックエンド別の具象型を条件付きで公開
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
-mod device_v4l2;
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
-pub use device_v4l2::{V4l2VideoDevice, V4l2VideoDeviceList};
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
-mod capture_v4l2;
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
-pub use capture_v4l2::V4l2VideoCapture;
-
-#[cfg(all(target_os = "linux", feature = "pipewire"))]
-mod device_pipewire;
-#[cfg(all(target_os = "linux", feature = "pipewire"))]
-pub use device_pipewire::{PipewireVideoDevice, PipewireVideoDeviceList};
-#[cfg(all(target_os = "linux", feature = "pipewire"))]
-mod capture_pipewire;
-#[cfg(all(target_os = "linux", feature = "pipewire"))]
-pub use capture_pipewire::PipewireVideoCapture;
-
-#[cfg(target_os = "macos")]
-mod device_avf;
-#[cfg(target_os = "macos")]
-pub use device_avf::{AvfVideoDevice, AvfVideoDeviceList};
-#[cfg(target_os = "macos")]
-mod capture_avf;
-#[cfg(target_os = "macos")]
-pub use capture_avf::AvfVideoCapture;
-
-#[cfg(target_os = "windows")]
-pub use capture_mf::MfVideoCapture;
-#[cfg(target_os = "windows")]
-pub use device_mf::{MfVideoDevice, MfVideoDeviceList};

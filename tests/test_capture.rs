@@ -8,30 +8,21 @@ use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
 use shiguredo_video_device::{
-    VideoCapture, VideoCaptureConfig, VideoDevice, VideoDeviceList, VideoFrame, VideoFrameOwned,
+    VideoCapture, VideoCaptureConfig, VideoDeviceList, VideoFrame, VideoFrameOwned,
 };
-
-#[cfg(target_os = "macos")]
-use shiguredo_video_device::{AvfVideoCapture, AvfVideoDeviceList};
-#[cfg(target_os = "windows")]
-use shiguredo_video_device::{MfVideoCapture, MfVideoDeviceList};
-#[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-use shiguredo_video_device::{PipewireVideoCapture, PipewireVideoDeviceList};
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
-use shiguredo_video_device::{V4l2VideoCapture, V4l2VideoDeviceList};
 
 /// デバイスが存在する環境で列挙が成功し、名前と ID が空でないことを確認する
 #[test]
 #[ignore]
 fn test_enumerate_devices() {
     #[cfg(all(target_os = "linux", feature = "v4l2"))]
-    let device_list = V4l2VideoDeviceList::enumerate().expect("device enumeration failed");
+    let device_list = VideoDeviceList::enumerate_v4l2().expect("device enumeration failed");
     #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-    let device_list = PipewireVideoDeviceList::enumerate().expect("device enumeration failed");
+    let device_list = VideoDeviceList::enumerate_pipewire().expect("device enumeration failed");
     #[cfg(target_os = "macos")]
-    let device_list = AvfVideoDeviceList::enumerate().expect("device enumeration failed");
+    let device_list = VideoDeviceList::enumerate_avf().expect("device enumeration failed");
     #[cfg(target_os = "windows")]
-    let device_list = MfVideoDeviceList::enumerate().expect("device enumeration failed");
+    let device_list = VideoDeviceList::enumerate_mf().expect("device enumeration failed");
 
     assert!(!device_list.is_empty(), "no video device found");
 
@@ -52,13 +43,13 @@ fn test_capture_frames() {
 
     // デバイスを列挙して先頭デバイスの ID を取得する
     #[cfg(all(target_os = "linux", feature = "v4l2"))]
-    let device_list = V4l2VideoDeviceList::enumerate().expect("device enumeration failed");
+    let device_list = VideoDeviceList::enumerate_v4l2().expect("device enumeration failed");
     #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-    let device_list = PipewireVideoDeviceList::enumerate().expect("device enumeration failed");
+    let device_list = VideoDeviceList::enumerate_pipewire().expect("device enumeration failed");
     #[cfg(target_os = "macos")]
-    let device_list = AvfVideoDeviceList::enumerate().expect("device enumeration failed");
+    let device_list = VideoDeviceList::enumerate_avf().expect("device enumeration failed");
     #[cfg(target_os = "windows")]
-    let device_list = MfVideoDeviceList::enumerate().expect("device enumeration failed");
+    let device_list = VideoDeviceList::enumerate_mf().expect("device enumeration failed");
 
     assert!(!device_list.is_empty(), "no video device found");
     let device_id = device_list.devices()[0]
@@ -74,22 +65,22 @@ fn test_capture_frames() {
     };
 
     #[cfg(all(target_os = "linux", feature = "v4l2"))]
-    let mut capture = V4l2VideoCapture::new(config, move |frame: VideoFrame<'_>| {
+    let mut capture = VideoCapture::new_v4l2(config, move |frame: VideoFrame<'_>| {
         send_frame(&tx, frame);
     })
     .expect("VideoCapture creation failed");
     #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-    let mut capture = PipewireVideoCapture::new(config, move |frame: VideoFrame<'_>| {
+    let mut capture = VideoCapture::new_pipewire(config, move |frame: VideoFrame<'_>| {
         send_frame(&tx, frame);
     })
     .expect("VideoCapture creation failed");
     #[cfg(target_os = "macos")]
-    let mut capture = AvfVideoCapture::new(config, move |frame: VideoFrame<'_>| {
+    let mut capture = VideoCapture::new_avf(config, move |frame: VideoFrame<'_>| {
         send_frame(&tx, frame);
     })
     .expect("VideoCapture creation failed");
     #[cfg(target_os = "windows")]
-    let mut capture = MfVideoCapture::new(config, move |frame: VideoFrame<'_>| {
+    let mut capture = VideoCapture::new_mf(config, move |frame: VideoFrame<'_>| {
         send_frame(&tx, frame);
     })
     .expect("VideoCapture creation failed");
