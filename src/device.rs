@@ -17,18 +17,18 @@ use crate::device_mf::{MfDeviceImpl, MfDeviceListImpl};
 /// バックエンドに依存しないラッパーで、各プラットフォームに応じた
 /// FFI 実装または Windows ネイティブ実装を内包する。
 /// `Send + Sync` であるため、スレッド間共有が可能。
-pub struct VideoDevice<'a>(pub(crate) VideoDeviceInner<'a>);
+pub struct VideoDevice(pub(crate) VideoDeviceInner);
 
-pub(crate) enum VideoDeviceInner<'a> {
+pub(crate) enum VideoDeviceInner {
     /// macOS / Linux の FFI ベースデバイス。
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    Ffi(FfiDeviceImpl<'a>),
+    Ffi(FfiDeviceImpl),
     /// Windows Media Foundation ベースデバイス。
     #[cfg(target_os = "windows")]
     Mf(MfDeviceImpl),
 }
 
-impl VideoDevice<'_> {
+impl VideoDevice {
     /// デバイス名を取得する。
     ///
     /// FFI バックエンドでは C 側がヌルポインタを返しうるため `Result` を返す。
@@ -92,11 +92,14 @@ pub(crate) enum VideoDeviceListInner {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     Ffi {
         _inner: FfiDeviceListImpl,
-        devices: Vec<VideoDevice<'static>>,
+        devices: Vec<VideoDevice>,
     },
     /// Windows Media Foundation ベースデバイスリスト。
     #[cfg(target_os = "windows")]
-    Mf { devices: Vec<VideoDevice<'static>> },
+    Mf {
+        _inner: MfDeviceListImpl,
+        devices: Vec<VideoDevice>,
+    },
 }
 
 impl VideoDeviceList {
@@ -148,24 +151,27 @@ impl VideoDeviceList {
     /// Windows Media Foundation でデバイスを列挙する。
     #[cfg(target_os = "windows")]
     pub fn enumerate_mf() -> Result<Self> {
-        let list = MfDeviceListImpl::enumerate()?;
-        let devices = list
-            .devices
+        let mut inner = MfDeviceListImpl::enumerate()?;
+        let raw_devices = std::mem::take(&mut inner.devices);
+        let devices = raw_devices
             .into_iter()
             .map(|d| VideoDevice(VideoDeviceInner::Mf(d)))
             .collect();
-        Ok(Self(VideoDeviceListInner::Mf { devices }))
+        Ok(Self(VideoDeviceListInner::Mf {
+            _inner: inner,
+            devices,
+        }))
     }
 
     /// デバイスのスライスを取得する。
     ///
     /// 戻り値のスライスが参照するメモリは `self` のライフタイムに束縛される。
-    pub fn devices(&self) -> &[VideoDevice<'static>] {
+    pub fn devices(&self) -> &[VideoDevice] {
         match &self.0 {
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             VideoDeviceListInner::Ffi { devices, .. } => devices,
             #[cfg(target_os = "windows")]
-            VideoDeviceListInner::Mf { devices } => devices,
+            VideoDeviceListInner::Mf { devices, .. } => devices,
         }
     }
 
@@ -181,8 +187,8 @@ impl VideoDeviceList {
 }
 
 impl<'a> IntoIterator for &'a VideoDeviceList {
-    type Item = &'a VideoDevice<'static>;
-    type IntoIter = std::slice::Iter<'a, VideoDevice<'static>>;
+    type Item = &'a VideoDevice;
+    type IntoIter = std::slice::Iter<'a, VideoDevice>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.devices().iter()

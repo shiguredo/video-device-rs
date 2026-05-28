@@ -42,23 +42,6 @@ pub(crate) struct MfDeviceListImpl {
 }
 
 impl MfDeviceListImpl {
-    /// デバイスのスライスを取得する。
-    pub fn devices(&self) -> &[MfDeviceImpl] {
-        &self.devices
-    }
-
-    /// デバイス数を取得する。
-    pub fn len(&self) -> usize {
-        self.devices.len()
-    }
-
-    /// デバイスが空かどうかを返す。
-    pub fn is_empty(&self) -> bool {
-        self.devices.is_empty()
-    }
-}
-
-impl MfDeviceListImpl {
     /// デバイスを列挙
     pub fn enumerate() -> Result<Self> {
         let devices = enumerate_devices_internal()?;

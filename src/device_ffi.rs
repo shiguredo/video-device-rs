@@ -4,7 +4,6 @@
 //! [`FfiDeviceListImpl`] がデバイス情報取得 / デバイス列挙を一括で提供する。
 
 use std::ffi::{CStr, c_char};
-use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 use crate::error::{Error, Result};
@@ -47,16 +46,14 @@ struct DeviceOps {
 /// `FfiDeviceListImpl` が C のポインタ配列から生成し、`Clone + Copy` であるため、
 /// デバイスリスト構築時の複製は軽量。
 #[derive(Clone, Copy)]
-pub(crate) struct FfiDeviceImpl<'a> {
+pub(crate) struct FfiDeviceImpl {
     /// バックエンドの FFI 関数テーブル。
     ops: &'static DeviceOps,
     /// C の `VideoDevice` へのポインタ。
     raw: NonNull<ffi::VideoDevice>,
-    /// 本デバイスのライフタイムをデバイスリストの借用に束縛するためのマーカー。
-    _phantom: PhantomData<&'a ()>,
 }
 
-impl FfiDeviceImpl<'_> {
+impl FfiDeviceImpl {
     pub fn name(&self) -> Result<String> {
         // SAFETY: raw は enumerate_devices が返した有効なポインタであり、
         // FfiDeviceListImpl のライフタイム中は C 側のメモリが有効。
@@ -120,8 +117,8 @@ impl FfiDeviceImpl<'_> {
 
 // SAFETY: 内部に保持する FFI デバイスポインタは C 側のスレッド安全性に従う。
 // 全バックエンドでデバイス情報は read-only であり、複数スレッドからの参照は安全。
-unsafe impl Send for FfiDeviceImpl<'_> {}
-unsafe impl Sync for FfiDeviceImpl<'_> {}
+unsafe impl Send for FfiDeviceImpl {}
+unsafe impl Sync for FfiDeviceImpl {}
 
 // ---------------------------------------------------------------------------
 // デバイスリスト（列挙・解放を内包）
@@ -142,7 +139,7 @@ pub(crate) struct FfiDeviceListImpl {
     /// `Drop` で `free_devices` に渡す際はこの値を使う（C 側の確保サイズに対応）。
     count: i32,
     /// 有効なデバイスの一覧（NULL エントリを除外済み）。
-    devices: Vec<FfiDeviceImpl<'static>>,
+    devices: Vec<FfiDeviceImpl>,
 }
 
 impl FfiDeviceListImpl {
@@ -158,7 +155,7 @@ impl FfiDeviceListImpl {
             return Err(Error::DeviceAccessDenied);
         }
 
-        let devices: Vec<FfiDeviceImpl<'static>> = (0..count as usize)
+        let devices: Vec<FfiDeviceImpl> = (0..count as usize)
             .filter_map(|i| {
                 // SAFETY: i は [0, count) の範囲であり、C 側が有効な配列を保証する。
                 // NULL エントリはフィルタで除外する（一部のバックエンドで発生しうる）。
@@ -166,7 +163,6 @@ impl FfiDeviceListImpl {
                 NonNull::new(device_ptr).map(|raw| FfiDeviceImpl {
                     ops,
                     raw,
-                    _phantom: PhantomData,
                 })
             })
             .collect();
@@ -180,7 +176,7 @@ impl FfiDeviceListImpl {
     }
 
     /// 列挙されたデバイスのスライスを返す。
-    pub fn devices(&self) -> &[FfiDeviceImpl<'static>] {
+    pub fn devices(&self) -> &[FfiDeviceImpl] {
         &self.devices
     }
 
