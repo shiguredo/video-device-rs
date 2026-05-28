@@ -160,10 +160,7 @@ impl FfiDeviceListImpl {
                 // SAFETY: i は [0, count) の範囲であり、C 側が有効な配列を保証する。
                 // NULL エントリはフィルタで除外する（一部のバックエンドで発生しうる）。
                 let device_ptr = unsafe { *devices_ptr.add(i) };
-                NonNull::new(device_ptr).map(|raw| FfiDeviceImpl {
-                    ops,
-                    raw,
-                })
+                NonNull::new(device_ptr).map(|raw| FfiDeviceImpl { ops, raw })
             })
             .collect();
 
