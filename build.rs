@@ -46,7 +46,7 @@ fn main() {
 fn build_macos(src_dir: &Path) {
     println!("cargo::rerun-if-changed=src/video_avf.m");
     println!("cargo::rerun-if-changed=src/video_avf.h");
-    println!("cargo::rerun-if-changed=src/video_common.h");
+    println!("cargo::rerun-if-changed=src/video.h");
 
     cc::Build::new()
         .file(src_dir.join("video_avf.m"))
@@ -63,7 +63,7 @@ fn build_macos(src_dir: &Path) {
 fn build_linux_v4l2(src_dir: &Path) {
     println!("cargo::rerun-if-changed=src/video_v4l2.c");
     println!("cargo::rerun-if-changed=src/video_v4l2.h");
-    println!("cargo::rerun-if-changed=src/video_common.h");
+    println!("cargo::rerun-if-changed=src/video.h");
 
     cc::Build::new()
         .file(src_dir.join("video_v4l2.c"))
@@ -75,7 +75,7 @@ fn build_linux_v4l2(src_dir: &Path) {
 fn build_linux_pipewire(src_dir: &Path) {
     println!("cargo::rerun-if-changed=src/video_pipewire.c");
     println!("cargo::rerun-if-changed=src/video_pipewire.h");
-    println!("cargo::rerun-if-changed=src/video_common.h");
+    println!("cargo::rerun-if-changed=src/video.h");
 
     let pipewire = pkg_config::Config::new()
         .probe("libpipewire-0.3")

@@ -135,12 +135,12 @@ pub trait VideoCapture {
 
 ヘッダ分割:
 - `video_c.h` を廃止し `video_v4l2.h`, `video_pipewire.h`, `video_avf.h` に分割する
-- `video_common.h` には以下を残し、各バックエンドヘッダから `#include` する:
+- `video.h` には以下を残し、各バックエンドヘッダから `#include` する:
   - `VideoDevice`、`VideoSession` の前方宣言（`struct VideoDevice;` / `struct VideoSession;`。実体定義は各 `.c`/`.m` ファイル内）
   - `VideoFormatEntry` 構造体定義
   - `FrameCallback` 型定義
   - `VIDEO_PIXEL_FORMAT_*` 定数
-- 各バックエンドヘッダ（`video_v4l2.h` 等）は `video_common.h` を include し、自バックエンドの `video_<backend>_*` 関数プロトタイプのみを宣言する。他バックエンドの関数は一切宣言しない（bindgen で不要なシンボルが生成されるのを防ぐため）
+- 各バックエンドヘッダ（`video_v4l2.h` 等）は `video.h` を include し、自バックエンドの `video_<backend>_*` 関数プロトタイプのみを宣言する。他バックエンドの関数は一切宣言しない（bindgen で不要なシンボルが生成されるのを防ぐため）
 
 ### 実装例
 
@@ -375,9 +375,9 @@ fn generate_bindings(header: &Path, out_file: &str, out_dir: &Path) {
 
 現在の `main()` 直下にある `println!("cargo::rerun-if-changed=src/video_c.h")` を削除し、各ビルド関数内で必要なファイルを個別に指定する:
 
-- **Linux V4L2**: `src/video_v4l2.c`, `src/video_v4l2.h`, `src/video_common.h`
-- **Linux PipeWire**: `src/video_pipewire.c`, `src/video_pipewire.h`, `src/video_common.h`
-- **macOS**: `src/video_avf.m`, `src/video_avf.h`, `src/video_common.h`
+- **Linux V4L2**: `src/video_v4l2.c`, `src/video_v4l2.h`, `src/video.h`
+- **Linux PipeWire**: `src/video_pipewire.c`, `src/video_pipewire.h`, `src/video.h`
+- **macOS**: `src/video_avf.m`, `src/video_avf.h`, `src/video.h`
 - **Windows**: なし（C コンパイルも bindgen も不要）
 
 ### フレーム計算の共通関数
@@ -589,7 +589,7 @@ fn enumerate_devices() -> shiguredo_video_device::Result<impl shiguredo_video_de
 | `src/types.rs` | `CoInitGuard` を `!Send` 化（`PhantomData<*const ()>` 追加）、`VIDEO_PIXEL_FORMAT_*` 定数と `from_raw`/`to_raw` の `#[cfg]` 削除、doc comment 更新 |
 | `build.rs` | 相互排他 panic 削除、バックエンド別コンパイル・バインディング生成、`rerun-if-changed` 更新 |
 | `Cargo.toml` | feature flag の相互排他制約撤廃 |
-| `src/video_c.h` → `src/video_common.h` + `src/video_v4l2.h` + `src/video_pipewire.h` + `src/video_avf.h` | ヘッダ分割 |
+| `src/video_c.h` → `src/video.h` + `src/video_v4l2.h` + `src/video_pipewire.h` + `src/video_avf.h` | ヘッダ分割 |
 | `src/video_v4l2.c` | 関数名に `video_v4l2_` 接頭辞を付加、`#include "video_c.h"` → `#include "video_v4l2.h"` |
 | `src/video_pipewire.c` | 関数名に `video_pipewire_` 接頭辞を付加、`#include "video_c.h"` → `#include "video_pipewire.h"` |
 | `src/video_c.m` → `src/video_avf.m` | リネーム、関数名に `video_avf_` 接頭辞を付加、`#include "video_c.h"` → `#include "video_avf.h"` |

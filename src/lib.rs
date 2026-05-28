@@ -19,9 +19,9 @@ mod frame_math;
 mod types;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-mod capture_common;
+mod capture_ffi;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-mod device_common;
+mod device_ffi;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod ffi;
 

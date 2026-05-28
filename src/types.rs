@@ -84,7 +84,7 @@ pub trait VideoCapture {
     fn config(&self) -> &VideoCaptureConfig;
 }
 
-/// ピクセルフォーマット定数 (video_common.h と同じ FourCC 値)
+/// ピクセルフォーマット定数 (video.h と同じ FourCC 値)
 pub(crate) const VIDEO_PIXEL_FORMAT_NV12: u32 = 0x3231564E;
 pub(crate) const VIDEO_PIXEL_FORMAT_YUY2: u32 = 0x32595559;
 pub(crate) const VIDEO_PIXEL_FORMAT_I420: u32 = 0x30323449;

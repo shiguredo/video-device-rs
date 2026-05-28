@@ -1,6 +1,6 @@
 //! Linux PipeWire 用のビデオデバイス列挙。
 
-use crate::device_common::{DeviceInner, DeviceListInner, DeviceOps};
+use crate::device_ffi::{DeviceInner, DeviceListInner, DeviceOps};
 use crate::error::Result;
 use crate::ffi;
 use crate::types::VideoFormat;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "video_common.h"
+#include "video.h"
 
 #if defined(__cplusplus)
 extern "C" {

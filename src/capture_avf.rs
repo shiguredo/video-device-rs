@@ -1,6 +1,6 @@
 //! macOS AVFoundation 用のビデオキャプチャ。
 
-use crate::capture_common::{CaptureInner, CaptureOps};
+use crate::capture_ffi::{CaptureInner, CaptureOps};
 use crate::error::Result;
 use crate::ffi;
 use crate::types::{VideoCaptureConfig, VideoFrame};
