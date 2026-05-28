@@ -196,7 +196,7 @@ fn print_device_list(list: &VideoDeviceList) {
         println!("  映像デバイスが見つかりません");
         return;
     }
-    for device in list.devices() {
+    for device in list {
         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
         let id = device.unique_id().unwrap_or_else(|_| "Unknown".to_string());
         println!("  {name}");

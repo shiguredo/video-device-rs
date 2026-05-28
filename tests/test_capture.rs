@@ -26,7 +26,7 @@ fn test_enumerate_devices() {
 
     assert!(!device_list.is_empty(), "no video device found");
 
-    for device in device_list.devices() {
+    for device in &device_list {
         let name = device.name().expect("failed to get device name");
         let id = device.unique_id().expect("failed to get device unique_id");
         assert!(!name.is_empty(), "device name is empty");

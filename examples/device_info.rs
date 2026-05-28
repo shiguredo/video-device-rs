@@ -26,7 +26,7 @@ fn main() {
     let mut fps_min = f32::MAX;
     let mut fps_max = f32::MIN;
 
-    for device in device_list.devices() {
+    for device in &device_list {
         let formats = device.formats();
         for format in &formats {
             total_format_count += 1;
@@ -56,7 +56,7 @@ fn main() {
             f.member(
                 "devices",
                 nojson::array(|f| {
-                    for device in device_list.devices() {
+                    for device in &device_list {
                         let name = device.name().unwrap_or_default();
                         let unique_id = device.unique_id().unwrap_or_default();
                         let formats = device.formats();
