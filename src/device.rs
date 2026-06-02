@@ -136,7 +136,7 @@ impl VideoDeviceList {
     pub fn enumerate_avf() -> Result<Self> {
         let inner = FfiDeviceListImpl::enumerate_avf()?;
         let devices = inner
-            .devices()
+            .as_slice()
             .iter()
             .map(|d| VideoDevice(VideoDeviceInner::Ffi(*d)))
             .collect();
@@ -151,7 +151,7 @@ impl VideoDeviceList {
     pub fn enumerate_v4l2() -> Result<Self> {
         let inner = FfiDeviceListImpl::enumerate_v4l2()?;
         let devices = inner
-            .devices()
+            .as_slice()
             .iter()
             .map(|d| VideoDevice(VideoDeviceInner::Ffi(*d)))
             .collect();
@@ -166,7 +166,7 @@ impl VideoDeviceList {
     pub fn enumerate_pipewire() -> Result<Self> {
         let inner = FfiDeviceListImpl::enumerate_pipewire()?;
         let devices = inner
-            .devices()
+            .as_slice()
             .iter()
             .map(|d| VideoDevice(VideoDeviceInner::Ffi(*d)))
             .collect();
@@ -194,7 +194,7 @@ impl VideoDeviceList {
     /// デバイスのスライスを取得する。
     ///
     /// 戻り値のスライスが参照するメモリは `self` のライフタイムに束縛される。
-    pub fn devices(&self) -> &[VideoDevice] {
+    pub fn as_slice(&self) -> &[VideoDevice] {
         match &self.0 {
             #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
             VideoDeviceListInner::Ffi { devices, .. } => devices,
@@ -205,12 +205,12 @@ impl VideoDeviceList {
 
     /// デバイス数を取得する。
     pub fn len(&self) -> usize {
-        self.devices().len()
+        self.as_slice().len()
     }
 
     /// デバイスが空かどうかを返す。
     pub fn is_empty(&self) -> bool {
-        self.devices().is_empty()
+        self.as_slice().is_empty()
     }
 }
 
@@ -219,6 +219,6 @@ impl<'a> IntoIterator for &'a VideoDeviceList {
     type IntoIter = std::slice::Iter<'a, VideoDevice>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.devices().iter()
+        self.as_slice().iter()
     }
 }

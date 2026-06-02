@@ -38,7 +38,7 @@ fn test_capture_frames() {
     let device_list = VideoDeviceList::enumerate().expect("device enumeration failed");
 
     assert!(!device_list.is_empty(), "no video device found");
-    let device_id = device_list.devices()[0]
+    let device_id = device_list.as_slice()[0]
         .unique_id()
         .expect("failed to get device unique_id");
 

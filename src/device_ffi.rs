@@ -173,7 +173,7 @@ impl FfiDeviceListImpl {
     }
 
     /// 列挙されたデバイスのスライスを返す。
-    pub fn devices(&self) -> &[FfiDeviceImpl] {
+    pub fn as_slice(&self) -> &[FfiDeviceImpl] {
         &self.devices
     }
 

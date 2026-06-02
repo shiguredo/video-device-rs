@@ -71,7 +71,7 @@ use shiguredo_video_device::VideoDeviceList;
 
 // デバイス一覧を取得
 let device_list = VideoDeviceList::enumerate()?;
-for device in device_list.devices() {
+for device in device_list {
     println!("デバイス: {} (ID: {})", device.name()?, device.unique_id()?);
 
     // 対応フォーマット一覧
