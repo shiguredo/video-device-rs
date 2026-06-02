@@ -106,7 +106,12 @@ impl VideoDeviceList {
     /// デフォルトバックエンドでデバイスを列挙する。
     ///
     /// ビルド時に選択されたデフォルトバックエンドを自動的に使用する。
-    #[cfg(any(enable_default_avf, enable_default_v4l2, enable_default_pipewire, enable_default_mf))]
+    #[cfg(any(
+        enable_default_avf,
+        enable_default_v4l2,
+        enable_default_pipewire,
+        enable_default_mf
+    ))]
     pub fn enumerate() -> Result<Self> {
         #[cfg(enable_default_avf)]
         {
