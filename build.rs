@@ -14,11 +14,20 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(enable_v4l2)");
     println!("cargo::rustc-check-cfg=cfg(enable_pipewire)");
     println!("cargo::rustc-check-cfg=cfg(enable_mf)");
+    println!("cargo::rustc-check-cfg=cfg(enable_default_avf)");
+    println!("cargo::rustc-check-cfg=cfg(enable_default_v4l2)");
+    println!("cargo::rustc-check-cfg=cfg(enable_default_pipewire)");
+    println!("cargo::rustc-check-cfg=cfg(enable_default_mf)");
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let mut enable_default_count = 0;
     match env::var("CARGO_CFG_TARGET_OS").unwrap().as_str() {
         "macos" => {
             if env::var("CARGO_FEATURE_AVF").is_ok() {
                 println!("cargo::rustc-cfg=enable_avf");
+            }
+            if env::var("CARGO_FEATURE_DEFAULT_AVF").is_ok() {
+                println!("cargo::rustc-cfg=enable_default_avf");
+                enable_default_count += 1;
             }
         }
         "linux" => {
@@ -28,13 +37,29 @@ fn main() {
             if env::var("CARGO_FEATURE_PIPEWIRE").is_ok() {
                 println!("cargo::rustc-cfg=enable_pipewire");
             }
+            if env::var("CARGO_FEATURE_DEFAULT_V4L2").is_ok() {
+                println!("cargo::rustc-cfg=enable_default_v4l2");
+                enable_default_count += 1;
+            }
+            if env::var("CARGO_FEATURE_DEFAULT_PIPEWIRE").is_ok() {
+                println!("cargo::rustc-cfg=enable_default_pipewire");
+                enable_default_count += 1;
+            }
         }
         "windows" => {
             if env::var("CARGO_FEATURE_MF").is_ok() {
                 println!("cargo::rustc-cfg=enable_mf");
             }
+            if env::var("CARGO_FEATURE_DEFAULT_MF").is_ok() {
+                println!("cargo::rustc-cfg=enable_default_mf");
+                enable_default_count += 1;
+            }
         }
         _ => panic!("Unsupported target OS: {}", target_os),
+    }
+
+    if enable_default_count >= 2 {
+        panic!("Multiple default backends selected. Enable exactly one default-* feature.");
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -70,8 +95,7 @@ fn main() {
                 generate_bindings(builder, "bindings_linux.rs", &out_dir);
             }
         }
-        "windows" => {
-        }
+        "windows" => {}
         _ => panic!("Unsupported target OS: {}", target_os),
     }
 }

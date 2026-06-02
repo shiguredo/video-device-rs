@@ -103,6 +103,29 @@ pub(crate) enum VideoDeviceListInner {
 }
 
 impl VideoDeviceList {
+    /// デフォルトバックエンドでデバイスを列挙する。
+    ///
+    /// ビルド時に選択されたデフォルトバックエンドを自動的に使用する。
+    #[cfg(any(enable_default_avf, enable_default_v4l2, enable_default_pipewire, enable_default_mf))]
+    pub fn enumerate() -> Result<Self> {
+        #[cfg(enable_default_avf)]
+        {
+            Self::enumerate_avf()
+        }
+        #[cfg(enable_default_v4l2)]
+        {
+            Self::enumerate_v4l2()
+        }
+        #[cfg(enable_default_pipewire)]
+        {
+            Self::enumerate_pipewire()
+        }
+        #[cfg(enable_default_mf)]
+        {
+            Self::enumerate_mf()
+        }
+    }
+
     /// macOS AVFoundation でデバイスを列挙する。
     #[cfg(enable_avf)]
     pub fn enumerate_avf() -> Result<Self> {

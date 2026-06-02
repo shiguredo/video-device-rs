@@ -288,14 +288,7 @@ fn main() {
     let args = parse_args();
 
     if args.list_devices {
-        #[cfg(all(target_os = "linux", feature = "v4l2"))]
-        let device_list = VideoDeviceList::enumerate_v4l2();
-        #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-        let device_list = VideoDeviceList::enumerate_pipewire();
-        #[cfg(target_os = "macos")]
-        let device_list = VideoDeviceList::enumerate_avf();
-        #[cfg(target_os = "windows")]
-        let device_list = VideoDeviceList::enumerate_mf();
+        let device_list = VideoDeviceList::enumerate();
         print_device_list(&device_list.expect("デバイスの列挙に失敗しました"));
         return;
     }
@@ -322,18 +315,8 @@ fn main() {
             });
         }
     };
-    #[cfg(all(target_os = "linux", feature = "v4l2"))]
     let mut video_capture =
-        VideoCapture::new_v4l2(video_config, callback).expect("VideoCapture の作成に失敗しました");
-    #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
-    let mut video_capture = VideoCapture::new_pipewire(video_config, callback)
-        .expect("VideoCapture の作成に失敗しました");
-    #[cfg(target_os = "macos")]
-    let mut video_capture =
-        VideoCapture::new_avf(video_config, callback).expect("VideoCapture の作成に失敗しました");
-    #[cfg(target_os = "windows")]
-    let mut video_capture =
-        VideoCapture::new_mf(video_config, callback).expect("VideoCapture の作成に失敗しました");
+        VideoCapture::new(video_config, callback).expect("VideoCapture の作成に失敗しました");
 
     // VideoPlayer を作成
     let title = format!(

@@ -43,8 +43,12 @@ windows = { version = "0.62", optional = true, features = [
 ] }
 
 [features]
-default = ["v4l2", "avf", "mf"]
+default = ["default-v4l2", "default-avf", "default-mf"]
 avf = []
 mf = ["dep:windows"]
 pipewire = []
 v4l2 = []
+default-avf = ["avf"]
+default-mf = ["mf"]
+default-pipewire = ["pipewire"]
+default-v4l2 = ["v4l2"]

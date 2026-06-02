@@ -23,7 +23,7 @@ jobs:
             cargo-flags: ""
           - name: Ubuntu (pipewire)
             os: ubuntu-24.04
-            cargo-flags: "--no-default-features --features pipewire"
+            cargo-flags: "--no-default-features --features default-pipewire"
           - name: Ubuntu (v4l2,pipewire)
             os: ubuntu-24.04
             cargo-flags: "--features v4l2,pipewire"

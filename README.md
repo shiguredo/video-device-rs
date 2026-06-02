@@ -28,7 +28,7 @@ macOS / Linux / Windows に対応したビデオデバイスライブラリで�
 
 ## Linux の feature
 
-Linux では `v4l2` (デフォルト) と `pipewire` の 2 つの feature を選択できます。両方を同時に指定することはできません。
+Linux では `v4l2` (デフォルト) と `pipewire` の 2 つの feature を選択できます。
 
 ## ビルド要件
 
@@ -59,7 +59,7 @@ sudo apt install libpipewire-0.3-dev
 cargo build -p shiguredo_video_device
 
 # Linux PipeWire バックエンド
-cargo build -p shiguredo_video_device --no-default-features --features pipewire
+cargo build -p shiguredo_video_device --no-default-features --features default-pipewire
 ```
 
 ## 使い方

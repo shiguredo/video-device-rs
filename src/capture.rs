@@ -27,6 +27,33 @@ enum VideoCaptureInner {
 }
 
 impl VideoCapture {
+    /// デフォルトバックエンドでキャプチャを構築する。
+    ///
+    /// この時点ではキャプチャスレッドは起動せず、`start()` が呼ばれるまで待機する。
+    /// ビルド時に選択されたデフォルトバックエンドを自動的に使用する。
+    #[cfg(any(enable_default_avf, enable_default_v4l2, enable_default_pipewire, enable_default_mf))]
+    pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+    where
+        F: Fn(VideoFrame<'_>) + Send + 'static,
+    {
+        #[cfg(enable_default_avf)]
+        {
+            Self::new_avf(config, callback)
+        }
+        #[cfg(enable_default_v4l2)]
+        {
+            Self::new_v4l2(config, callback)
+        }
+        #[cfg(enable_default_pipewire)]
+        {
+            Self::new_pipewire(config, callback)
+        }
+        #[cfg(enable_default_mf)]
+        {
+            Self::new_mf(config, callback)
+        }
+    }
+
     /// macOS AVFoundation でキャプチャを構築する。
     ///
     /// この時点ではキャプチャスレッドは起動せず、`start()` が呼ばれるまで待機する。
