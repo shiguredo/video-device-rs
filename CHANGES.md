@@ -15,6 +15,8 @@
   - @melpon
 - [ADD] Linux で `v4l2` と `pipewire` の feature flag を同時に有効化可能にする
   - @melpon
+- [ADD] macOS AVFoundation に `avf` feature、Windows Media Foundation に `mf` feature を追加し、全プラットフォームでバックエンドを feature flag で制御可能にする
+  - @melpon
 - [CHANGE] `VideoDevice`, `VideoDeviceList`, `VideoCapture` を構造体から enum に変更する
   - @melpon
 - [FIX] `VideoCapture`, `PixelBuffer` はスレッドセーフな構造体ではないので Sync を削除する

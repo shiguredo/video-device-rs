@@ -178,19 +178,19 @@ impl FfiDeviceListImpl {
     }
 
     /// macOS AVFoundation でデバイスを列挙する。
-    #[cfg(target_os = "macos")]
+    #[cfg(enable_avf)]
     pub(crate) fn enumerate_avf() -> Result<Self> {
         Self::enumerate(&OPS_AVF)
     }
 
     /// Linux V4L2 でデバイスを列挙する。
-    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    #[cfg(enable_v4l2)]
     pub(crate) fn enumerate_v4l2() -> Result<Self> {
         Self::enumerate(&OPS_V4L2)
     }
 
     /// Linux PipeWire でデバイスを列挙する。
-    #[cfg(all(target_os = "linux", feature = "pipewire"))]
+    #[cfg(enable_pipewire)]
     pub(crate) fn enumerate_pipewire() -> Result<Self> {
         Self::enumerate(&OPS_PIPEWIRE)
     }
@@ -215,7 +215,7 @@ unsafe impl Sync for FfiDeviceListImpl {}
 // ---------------------------------------------------------------------------
 
 /// macOS AVFoundation 用の DeviceOps。
-#[cfg(target_os = "macos")]
+#[cfg(enable_avf)]
 const OPS_AVF: DeviceOps = DeviceOps {
     device_name: ffi::video_avf_device_name,
     device_unique_id: ffi::video_avf_device_unique_id,
@@ -226,7 +226,7 @@ const OPS_AVF: DeviceOps = DeviceOps {
 };
 
 /// Linux V4L2 用の DeviceOps。
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
+#[cfg(enable_v4l2)]
 const OPS_V4L2: DeviceOps = DeviceOps {
     device_name: ffi::video_v4l2_device_name,
     device_unique_id: ffi::video_v4l2_device_unique_id,
@@ -237,7 +237,7 @@ const OPS_V4L2: DeviceOps = DeviceOps {
 };
 
 /// Linux PipeWire 用の DeviceOps。
-#[cfg(all(target_os = "linux", feature = "pipewire"))]
+#[cfg(enable_pipewire)]
 const OPS_PIPEWIRE: DeviceOps = DeviceOps {
     device_name: ffi::video_pipewire_device_name,
     device_unique_id: ffi::video_pipewire_device_unique_id,

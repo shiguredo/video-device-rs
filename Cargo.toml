@@ -33,7 +33,7 @@ pkg-config = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 # Microsoft 公式の Win32 API バインディング。必要な機能だけを feature で有効化する
-windows = { version = "0.62", features = [
+windows = { version = "0.62", optional = true, features = [
   # HRESULT・HANDLE・BOOL などの Win32 基本型
   "Win32_Foundation",
   # Media Foundation のカメラキャプチャ関連 API
@@ -43,6 +43,8 @@ windows = { version = "0.62", features = [
 ] }
 
 [features]
-default = ["v4l2"]
+default = ["v4l2", "avf", "mf"]
+avf = []
+mf = ["dep:windows"]
 pipewire = []
 v4l2 = []

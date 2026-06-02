@@ -1,5 +1,5 @@
 /// NV12 の Y / UV プレーンのバイト長を計算する。負のストライドやオーバーフロー時は None。
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 pub(crate) fn nv12_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
     if stride <= 0 || stride_uv <= 0 || height <= 0 {
         return None;
@@ -18,7 +18,7 @@ pub(crate) fn nv12_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Opti
 /// 本関数の UV は `stride_uv * ((height + 1) / 2) * 2`（usize での切り上げ整合）であり、
 /// 偶数 `height` では `stride_uv * height` と同値、奇数 `height` では C の `uvSize` と一致する。
 /// Linux PipeWire など他経路の I420 では、連結 UV の実バイト数やストライドの解釈がこの式と一致しない場合がある。
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 pub(crate) fn i420_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
     if stride <= 0 || stride_uv <= 0 || height <= 0 {
         return None;
@@ -31,7 +31,7 @@ pub(crate) fn i420_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Opti
 }
 
 /// YUY2 の 1 フレーム分のバイト長を計算する。
-#[cfg(not(target_os = "windows"))]
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 pub(crate) fn yuy2_packed_frame_bytes(stride: i32, height: i32) -> Option<usize> {
     if stride <= 0 || height <= 0 {
         return None;
@@ -40,7 +40,7 @@ pub(crate) fn yuy2_packed_frame_bytes(stride: i32, height: i32) -> Option<usize>
 }
 
 /// NV12 連続バッファに必要な Y+UV バイト数。
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 pub(crate) fn nv12_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
     if width <= 0 || height <= 0 {
         return None;
@@ -51,7 +51,7 @@ pub(crate) fn nv12_packed_frame_bytes(width: i32, height: i32) -> Option<usize> 
 }
 
 /// I420 連結 Y+U+V に必要なバイト数（Y + U + V の合計が Y+Y/2 になる標準レイアウト）。
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 pub(crate) fn i420_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
     if width <= 0 || height <= 0 {
         return None;
@@ -62,7 +62,7 @@ pub(crate) fn i420_packed_frame_bytes(width: i32, height: i32) -> Option<usize> 
 }
 
 /// YUY2 の 1 フレーム分のバイト数。
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 pub(crate) fn yuy2_packed_frame_bytes_win(width: i32, height: i32) -> Option<usize> {
     if width <= 0 || height <= 0 {
         return None;
@@ -73,13 +73,13 @@ pub(crate) fn yuy2_packed_frame_bytes_win(width: i32, height: i32) -> Option<usi
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     use super::{i420_packed_frame_bytes, nv12_packed_frame_bytes, yuy2_packed_frame_bytes_win};
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     use super::{i420_plane_sizes, nv12_plane_sizes, yuy2_packed_frame_bytes};
 
     #[test]
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     fn nv12_rejects_non_positive_dimensions() {
         assert_eq!(nv12_plane_sizes(0, 4, 480), None);
         assert_eq!(nv12_plane_sizes(4, 0, 480), None);
@@ -88,21 +88,21 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     fn nv12_small_known_sizes() {
         // Y: 4*2=8, UV 行は div_ceil(2,2)=1, UV: 4*1=4
         assert_eq!(nv12_plane_sizes(4, 4, 2), Some((8, 4)));
     }
 
     #[test]
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     fn nv12_odd_height_uv_rows_use_div_ceil() {
         // height=3 -> uv 行数 2, UV: stride_uv * 2
         assert_eq!(nv12_plane_sizes(8, 8, 3), Some((24, 16)));
     }
 
     #[test]
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     fn i420_matches_macos_uv_formula() {
         // video_c.m: uvSize = strideUV * chromaHeight * 2, chromaHeight = (height + 1) / 2
         // height=480, stride_uv=320 -> chroma_h=240, uv=320*240*2=153600
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     fn i420_rejects_non_positive() {
         assert_eq!(i420_plane_sizes(0, 4, 100), None);
         assert_eq!(i420_plane_sizes(4, 0, 100), None);
@@ -120,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     fn yuy2_packed_bytes_stride_times_height() {
         assert_eq!(yuy2_packed_frame_bytes(640, 480), Some(307_200));
         assert_eq!(yuy2_packed_frame_bytes(0, 480), None);
@@ -128,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     fn nv12_packed_rejects_non_positive() {
         assert_eq!(nv12_packed_frame_bytes(0, 480), None);
         assert_eq!(nv12_packed_frame_bytes(640, 0), None);
@@ -136,14 +136,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     fn nv12_packed_known_sizes() {
         // 640*480=307200, UV: 640*240=153600, total=460800
         assert_eq!(nv12_packed_frame_bytes(640, 480), Some(307_200 + 153_600));
     }
 
     #[test]
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     fn i420_packed_known_sizes() {
         // Y: 640*480=307200, U: 320*240=76800, V: 320*240=76800, total=460800
         assert_eq!(
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     fn yuy2_packed_win_stride_doubled() {
         // YUY2: 2 bytes per pixel, so stride = width * 2
         assert_eq!(yuy2_packed_frame_bytes_win(640, 480), Some(640 * 2 * 480));

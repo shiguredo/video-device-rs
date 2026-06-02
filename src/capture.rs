@@ -6,10 +6,10 @@
 use crate::error::Result;
 use crate::types::{VideoCaptureConfig, VideoFrame};
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 use crate::capture_ffi::FfiCaptureImpl;
 
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 use crate::capture_mf::MfCaptureImpl;
 
 /// ビデオキャプチャ。
@@ -19,10 +19,10 @@ pub struct VideoCapture(VideoCaptureInner);
 
 enum VideoCaptureInner {
     /// macOS / Linux の FFI ベースキャプチャ。
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     Ffi(FfiCaptureImpl),
     /// Windows Media Foundation ベースキャプチャ。
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     Mf(MfCaptureImpl),
 }
 
@@ -30,7 +30,7 @@ impl VideoCapture {
     /// macOS AVFoundation でキャプチャを構築する。
     ///
     /// この時点ではキャプチャスレッドは起動せず、`start()` が呼ばれるまで待機する。
-    #[cfg(target_os = "macos")]
+    #[cfg(enable_avf)]
     pub fn new_avf<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
@@ -41,7 +41,7 @@ impl VideoCapture {
     }
 
     /// Linux V4L2 でキャプチャを構築する。
-    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    #[cfg(enable_v4l2)]
     pub fn new_v4l2<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
@@ -52,7 +52,7 @@ impl VideoCapture {
     }
 
     /// Linux PipeWire でキャプチャを構築する。
-    #[cfg(all(target_os = "linux", feature = "pipewire"))]
+    #[cfg(enable_pipewire)]
     pub fn new_pipewire<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
@@ -63,7 +63,7 @@ impl VideoCapture {
     }
 
     /// Windows Media Foundation でキャプチャを構築する。
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     pub fn new_mf<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
@@ -82,9 +82,9 @@ impl VideoCapture {
     /// 他バックエンドでは即座に復帰する。
     pub fn start(&mut self) -> Result<()> {
         match &mut self.0 {
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
             VideoCaptureInner::Ffi(inner) => inner.start(),
-            #[cfg(target_os = "windows")]
+            #[cfg(enable_mf)]
             VideoCaptureInner::Mf(inner) => inner.start(),
         }
     }
@@ -95,9 +95,9 @@ impl VideoCapture {
     /// running でない状態の場合は no-op。
     pub fn stop(&mut self) {
         match &mut self.0 {
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
             VideoCaptureInner::Ffi(inner) => inner.stop(),
-            #[cfg(target_os = "windows")]
+            #[cfg(enable_mf)]
             VideoCaptureInner::Mf(inner) => inner.stop(),
         }
     }
@@ -105,9 +105,9 @@ impl VideoCapture {
     /// キャプチャ設定を取得する。
     pub fn config(&self) -> &VideoCaptureConfig {
         match &self.0 {
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
             VideoCaptureInner::Ffi(inner) => inner.config(),
-            #[cfg(target_os = "windows")]
+            #[cfg(enable_mf)]
             VideoCaptureInner::Mf(inner) => inner.config(),
         }
     }

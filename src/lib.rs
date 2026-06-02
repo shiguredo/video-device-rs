@@ -20,16 +20,16 @@ mod error;
 mod frame_math;
 mod types;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 mod capture_ffi;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 mod device_ffi;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 mod ffi;
 
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 mod capture_mf;
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 mod device_mf;
 
 pub use capture::VideoCapture;

@@ -6,10 +6,10 @@
 use crate::error::Result;
 use crate::types::VideoFormat;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 use crate::device_ffi::{FfiDeviceImpl, FfiDeviceListImpl};
 
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 use crate::device_mf::{MfDeviceImpl, MfDeviceListImpl};
 
 /// ビデオデバイス。
@@ -21,10 +21,10 @@ pub struct VideoDevice(pub(crate) VideoDeviceInner);
 
 pub(crate) enum VideoDeviceInner {
     /// macOS / Linux の FFI ベースデバイス。
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     Ffi(FfiDeviceImpl),
     /// Windows Media Foundation ベースデバイス。
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     Mf(MfDeviceImpl),
 }
 
@@ -34,9 +34,9 @@ impl VideoDevice {
     /// FFI バックエンドでは C 側がヌルポインタを返しうるため `Result` を返す。
     pub fn name(&self) -> Result<String> {
         match &self.0 {
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
             VideoDeviceInner::Ffi(inner) => inner.name(),
-            #[cfg(target_os = "windows")]
+            #[cfg(enable_mf)]
             VideoDeviceInner::Mf(inner) => inner.name(),
         }
     }
@@ -46,9 +46,9 @@ impl VideoDevice {
     /// FFI バックエンドでは C 側がヌルポインタを返しうるため `Result` を返す。
     pub fn unique_id(&self) -> Result<String> {
         match &self.0 {
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
             VideoDeviceInner::Ffi(inner) => inner.unique_id(),
-            #[cfg(target_os = "windows")]
+            #[cfg(enable_mf)]
             VideoDeviceInner::Mf(inner) => inner.unique_id(),
         }
     }
@@ -60,9 +60,9 @@ impl VideoDevice {
     /// 返すベクタの要素数がこれより少ない場合がある。
     pub fn format_count(&self) -> usize {
         match &self.0 {
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
             VideoDeviceInner::Ffi(inner) => inner.format_count(),
-            #[cfg(target_os = "windows")]
+            #[cfg(enable_mf)]
             VideoDeviceInner::Mf(inner) => inner.format_count(),
         }
     }
@@ -73,9 +73,9 @@ impl VideoDevice {
     /// [`format_count`](VideoDevice::format_count) の値と一致しない場合がある（上記のスキップのため）。
     pub fn formats(&self) -> Vec<VideoFormat> {
         match &self.0 {
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
             VideoDeviceInner::Ffi(inner) => inner.formats(),
-            #[cfg(target_os = "windows")]
+            #[cfg(enable_mf)]
             VideoDeviceInner::Mf(inner) => inner.formats(),
         }
     }
@@ -89,13 +89,13 @@ pub struct VideoDeviceList(pub(crate) VideoDeviceListInner);
 
 pub(crate) enum VideoDeviceListInner {
     /// macOS / Linux の FFI ベースデバイスリスト。
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     Ffi {
         _inner: FfiDeviceListImpl,
         devices: Vec<VideoDevice>,
     },
     /// Windows Media Foundation ベースデバイスリスト。
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     Mf {
         _inner: MfDeviceListImpl,
         devices: Vec<VideoDevice>,
@@ -104,7 +104,7 @@ pub(crate) enum VideoDeviceListInner {
 
 impl VideoDeviceList {
     /// macOS AVFoundation でデバイスを列挙する。
-    #[cfg(target_os = "macos")]
+    #[cfg(enable_avf)]
     pub fn enumerate_avf() -> Result<Self> {
         let inner = FfiDeviceListImpl::enumerate_avf()?;
         let devices = inner
@@ -119,7 +119,7 @@ impl VideoDeviceList {
     }
 
     /// Linux V4L2 でデバイスを列挙する。
-    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    #[cfg(enable_v4l2)]
     pub fn enumerate_v4l2() -> Result<Self> {
         let inner = FfiDeviceListImpl::enumerate_v4l2()?;
         let devices = inner
@@ -134,7 +134,7 @@ impl VideoDeviceList {
     }
 
     /// Linux PipeWire でデバイスを列挙する。
-    #[cfg(all(target_os = "linux", feature = "pipewire"))]
+    #[cfg(enable_pipewire)]
     pub fn enumerate_pipewire() -> Result<Self> {
         let inner = FfiDeviceListImpl::enumerate_pipewire()?;
         let devices = inner
@@ -149,7 +149,7 @@ impl VideoDeviceList {
     }
 
     /// Windows Media Foundation でデバイスを列挙する。
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     pub fn enumerate_mf() -> Result<Self> {
         let mut inner = MfDeviceListImpl::enumerate()?;
         let raw_devices = std::mem::take(&mut inner.devices);
@@ -168,9 +168,9 @@ impl VideoDeviceList {
     /// 戻り値のスライスが参照するメモリは `self` のライフタイムに束縛される。
     pub fn devices(&self) -> &[VideoDevice] {
         match &self.0 {
-            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
             VideoDeviceListInner::Ffi { devices, .. } => devices,
-            #[cfg(target_os = "windows")]
+            #[cfg(enable_mf)]
             VideoDeviceListInner::Mf { devices, .. } => devices,
         }
     }

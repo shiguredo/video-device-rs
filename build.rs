@@ -4,15 +4,50 @@ use std::path::{Path, PathBuf};
 use bindgen::Builder;
 
 fn main() {
+    // 対応するプラットフォームだった場合だけ各 feature を有効にする。
+    // これによって以下のように書けるようになる。
+    //
+    // #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    // ↓
+    // #[cfg(enable_v4l2)]
+    println!("cargo::rustc-check-cfg=cfg(enable_avf)");
+    println!("cargo::rustc-check-cfg=cfg(enable_v4l2)");
+    println!("cargo::rustc-check-cfg=cfg(enable_pipewire)");
+    println!("cargo::rustc-check-cfg=cfg(enable_mf)");
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    match env::var("CARGO_CFG_TARGET_OS").unwrap().as_str() {
+        "macos" => {
+            if env::var("CARGO_FEATURE_AVF").is_ok() {
+                println!("cargo::rustc-cfg=enable_avf");
+            }
+        }
+        "linux" => {
+            if env::var("CARGO_FEATURE_V4L2").is_ok() {
+                println!("cargo::rustc-cfg=enable_v4l2");
+            }
+            if env::var("CARGO_FEATURE_PIPEWIRE").is_ok() {
+                println!("cargo::rustc-cfg=enable_pipewire");
+            }
+        }
+        "windows" => {
+            if env::var("CARGO_FEATURE_MF").is_ok() {
+                println!("cargo::rustc-cfg=enable_mf");
+            }
+        }
+        _ => panic!("Unsupported target OS: {}", target_os),
+    }
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let src_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("src");
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
 
     match target_os.as_str() {
         "macos" => {
-            build_macos(&src_dir);
-            let builder = Builder::default().header(src_dir.join("video_avf.h").to_str().unwrap());
-            generate_bindings(builder, "bindings_macos.rs", &out_dir);
+            if env::var("CARGO_FEATURE_AVF").is_ok() {
+                build_macos(&src_dir);
+                let builder =
+                    Builder::default().header(src_dir.join("video_avf.h").to_str().unwrap());
+                generate_bindings(builder, "bindings_macos.rs", &out_dir);
+            }
         }
         "linux" => {
             let has_v4l2 = env::var("CARGO_FEATURE_V4L2").is_ok();
@@ -36,8 +71,6 @@ fn main() {
             }
         }
         "windows" => {
-            // windows-rs を使用するため C/C++ コンパイル不要
-            // bindgen も不要
         }
         _ => panic!("Unsupported target OS: {}", target_os),
     }

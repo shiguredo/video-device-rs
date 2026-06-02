@@ -15,13 +15,13 @@ use shiguredo_video_device::{
 #[test]
 #[ignore]
 fn test_enumerate_devices() {
-    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    #[cfg(enable_v4l2)]
     let device_list = VideoDeviceList::enumerate_v4l2().expect("device enumeration failed");
-    #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+    #[cfg(all(enable_pipewire, not(enable_v4l2)))]
     let device_list = VideoDeviceList::enumerate_pipewire().expect("device enumeration failed");
-    #[cfg(target_os = "macos")]
+    #[cfg(enable_avf)]
     let device_list = VideoDeviceList::enumerate_avf().expect("device enumeration failed");
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     let device_list = VideoDeviceList::enumerate_mf().expect("device enumeration failed");
 
     assert!(!device_list.is_empty(), "no video device found");
@@ -42,13 +42,13 @@ fn test_capture_frames() {
     let timeout = Duration::from_secs(10);
 
     // デバイスを列挙して先頭デバイスの ID を取得する
-    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    #[cfg(enable_v4l2)]
     let device_list = VideoDeviceList::enumerate_v4l2().expect("device enumeration failed");
-    #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+    #[cfg(all(enable_pipewire, not(enable_v4l2)))]
     let device_list = VideoDeviceList::enumerate_pipewire().expect("device enumeration failed");
-    #[cfg(target_os = "macos")]
+    #[cfg(enable_avf)]
     let device_list = VideoDeviceList::enumerate_avf().expect("device enumeration failed");
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     let device_list = VideoDeviceList::enumerate_mf().expect("device enumeration failed");
 
     assert!(!device_list.is_empty(), "no video device found");
@@ -64,22 +64,22 @@ fn test_capture_frames() {
         ..VideoCaptureConfig::default()
     };
 
-    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    #[cfg(enable_v4l2)]
     let mut capture = VideoCapture::new_v4l2(config, move |frame: VideoFrame<'_>| {
         send_frame(&tx, frame);
     })
     .expect("VideoCapture creation failed");
-    #[cfg(all(target_os = "linux", feature = "pipewire", not(feature = "v4l2")))]
+    #[cfg(all(enable_pipewire, not(enable_v4l2)))]
     let mut capture = VideoCapture::new_pipewire(config, move |frame: VideoFrame<'_>| {
         send_frame(&tx, frame);
     })
     .expect("VideoCapture creation failed");
-    #[cfg(target_os = "macos")]
+    #[cfg(enable_avf)]
     let mut capture = VideoCapture::new_avf(config, move |frame: VideoFrame<'_>| {
         send_frame(&tx, frame);
     })
     .expect("VideoCapture creation failed");
-    #[cfg(target_os = "windows")]
+    #[cfg(enable_mf)]
     let mut capture = VideoCapture::new_mf(config, move |frame: VideoFrame<'_>| {
         send_frame(&tx, frame);
     })

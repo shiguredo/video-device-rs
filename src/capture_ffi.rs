@@ -129,7 +129,7 @@ impl FfiCaptureImpl {
     }
 
     /// macOS AVFoundation でキャプチャを構築する。
-    #[cfg(target_os = "macos")]
+    #[cfg(enable_avf)]
     pub(crate) fn new_avf<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
@@ -138,7 +138,7 @@ impl FfiCaptureImpl {
     }
 
     /// Linux V4L2 でキャプチャを構築する。
-    #[cfg(all(target_os = "linux", feature = "v4l2"))]
+    #[cfg(enable_v4l2)]
     pub(crate) fn new_v4l2<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
@@ -147,7 +147,7 @@ impl FfiCaptureImpl {
     }
 
     /// Linux PipeWire でキャプチャを構築する。
-    #[cfg(all(target_os = "linux", feature = "pipewire"))]
+    #[cfg(enable_pipewire)]
     pub(crate) fn new_pipewire<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
@@ -340,7 +340,7 @@ extern "C" fn frame_callback(
 // ---------------------------------------------------------------------------
 
 /// macOS AVFoundation 用の CaptureOps。
-#[cfg(target_os = "macos")]
+#[cfg(enable_avf)]
 const OPS_AVF: CaptureOps = CaptureOps {
     session_create: ffi::video_avf_session_create,
     session_start: ffi::video_avf_session_start,
@@ -349,7 +349,7 @@ const OPS_AVF: CaptureOps = CaptureOps {
 };
 
 /// Linux V4L2 用の CaptureOps。
-#[cfg(all(target_os = "linux", feature = "v4l2"))]
+#[cfg(enable_v4l2)]
 const OPS_V4L2: CaptureOps = CaptureOps {
     session_create: ffi::video_v4l2_session_create,
     session_start: ffi::video_v4l2_session_start,
@@ -358,7 +358,7 @@ const OPS_V4L2: CaptureOps = CaptureOps {
 };
 
 /// Linux PipeWire 用の CaptureOps。
-#[cfg(all(target_os = "linux", feature = "pipewire"))]
+#[cfg(enable_pipewire)]
 const OPS_PIPEWIRE: CaptureOps = CaptureOps {
     session_create: ffi::video_pipewire_session_create,
     session_start: ffi::video_pipewire_session_start,
