@@ -32,8 +32,6 @@ pub enum PixelFormat {
     /// 圧縮された JPEG フレーム。デコードは利用者の責務。
     /// V4L2 バックエンド + `mjpeg` feature 有効時のみキャプチャ可能。
     /// それ以外の環境でキャプチャ要求すると `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` を返す。
-    /// `VideoFrame::data` は JPEG ペイロード、`uv_data` は `None`、
-    /// `stride` / `stride_uv` は **常に 0** (意味を持たない)。
     Mjpeg,
     /// 不明なフォーマット
     Unknown(u32),
@@ -191,9 +189,6 @@ pub struct VideoCaptureConfig {
     /// フレームレート
     pub fps: i32,
     /// 取得するピクセルフォーマット (None の場合はデフォルト選択)
-    ///
-    /// `Some(PixelFormat::Mjpeg)` を指定できるのは Linux V4L2 + `mjpeg` feature 有効時のみ。
-    /// それ以外の環境 (macOS / Windows / PipeWire) では `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` で失敗する。
     pub pixel_format: Option<PixelFormat>,
 }
 
