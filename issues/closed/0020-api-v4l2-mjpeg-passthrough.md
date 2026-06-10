@@ -1,6 +1,7 @@
 # Linux (V4L2) で MJPEG フォーマットをパススルーで対応する
 
 Created: 2026-06-10
+Completed: 2026-06-10
 Model: Opus 4.7
 Polished: 2026-06-10
 
@@ -641,3 +642,36 @@ cargo fuzz add mjpeg_payload_bytes  # fuzz/fuzz_targets/mjpeg_payload_bytes.rs �
 - **`mjpeg` feature 有効時 (macOS)**: `Some(PixelFormat::Mjpeg)` 指定時は `Error::UnsupportedPixelFormat(Mjpeg)` を返す (`FfiCaptureImpl::new` の `#[cfg(not(enable_mjpeg))]` ガード)。`formats()` には MJPEG は出現しない (`video_avf.m::convert_pixel_format` が MJPEG を `default: 0` で除外)
 - **`mjpeg` feature 有効時 (Windows)**: `mjpeg = ["v4l2"]` により `CARGO_FEATURE_MJPEG` は cargo によりセットされるが、build.rs の cfg 発行 (`enable_mjpeg`) は Linux アーム内のみのため Windows では発行されない。`Some(PixelFormat::Mjpeg)` 指定時は `capture_ffi.rs` がコンパイルされない (Windows では `enable_v4l2`/`enable_avf`/`enable_pipewire` のいずれも発行されないため) ため、`FfiCaptureImpl` のチェックは存在せず、MF 側の `pixel_format_to_guid(Mjpeg) = None` → `UnsupportedPixelFormat(Mjpeg)` の経路で拒否される。`formats()` には MJPEG は出現しない (`guid_to_pixel_format` を変更しないため)
 - **C ABI**: シグネチャは変更なし。`FrameCallback` の `stride` 引数の意味が `pixel_format` に依存する契約を明示文書化する
+
+## 解決方法
+
+issue の設計方針に従い、以下の変更を行った:
+
+### ビルドシステム (Cargo.toml / build.rs)
+- `Cargo.toml` に `mjpeg = ["v4l2"]` feature、`proptest` dev-dependency、`[[test]]` セクションを追加
+- `build.rs` に `enable_mjpeg` の check-cfg、Linux アーム内での cfg 発行、`build_linux_v4l2` での `SHIGUREDO_VIDEO_DEVICE_MJPEG` define を追加
+
+### C コード (video.h / video_v4l2.c)
+- `video.h` に `VIDEO_PIXEL_FORMAT_MJPG` 定数 (feature ガードなし) と `FrameCallback` の MJPEG 仕様コメントを追加
+- `video_v4l2.c` に `#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG` ガード付きで `MJPEG_MAX_PAYLOAD_BYTES` (256 MiB) 定数、フォーマット変換 (`convert_v4l2_pixel_format` / `convert_video_pixel_format_to_v4l2`) の MJPEG case、`capture_thread` の MJPEG 分岐を追加
+
+### Rust コード (types.rs / capture_ffi.rs / capture_mf.rs / frame_math.rs)
+- `PixelFormat::Mjpeg` バリアントを cfg ガードなしで常時定義 (全プラットフォームで match 網羅性を確保)
+- `from_raw` / `to_raw` / `name` / `Display` / `pixel_format_to_guid` に MJPEG 分岐を追加
+- `VideoFrame` / `VideoFrameOwned` / `VideoCaptureConfig` の rustdoc に MJPEG 時の解釈・制約を明記
+- `frame_math.rs` に `#[cfg(enable_mjpeg)]` ガード付き `mjpeg_payload_bytes` ヘルパを追加
+- `capture_ffi.rs` に `#[cfg(not(enable_mjpeg))]` ガード付きエラーチェック、PipeWire 拒否、`frame_callback` の MJPEG パススルー分岐を追加
+- `capture_mf.rs` に `PixelFormat::Mjpeg` 分岐 (到達防止用 `return`) を追加
+
+### サンプル / ドキュメント / テスト
+- `examples/camera_preview.rs` に MJPEG 未サポート警告分岐を追加
+- `README.md` に `mjpeg` feature セクションを追記
+- `CHANGES.md` に `[CHANGE]` エントリを追加
+- `src/types.rs` 内 `#[cfg(test)]` に `from_raw` の MJPEG テスト 2 件を追加
+- `pbt/tests/prop_types.rs` を新規作成 (PBT 4 件: FourCC 検証、name 非空、Display 検証、ラウンドトリップ)
+- `fuzz/fuzz_targets/mjpeg_payload_bytes.rs` の fuzzing は本 issue のスコープ外としてスキップ (別途対応)
+
+### 検証結果
+- 全 feature 組み合わせ (`default`, `mjpeg`, `v4l2`, `v4l2,mjpeg`) で `cargo build` / `cargo test --lib` / `cargo clippy --all-targets` が成功
+- 新規 warning 0 件
+- 既存の NG ケース (`--no-default-features --features v4l2` での integration tests/examples ビルド失敗) は本 issue 以前からの問題であり、対象外
