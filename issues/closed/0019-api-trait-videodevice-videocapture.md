@@ -1,6 +1,7 @@
 # VideoDevice, VideoDeviceList, VideoCapture を trait 化する
 
 Created: 2026-05-26
+Completed: 2026-06-10
 Model: DeepSeek v4 Pro
 
 ## 問題
@@ -597,3 +598,15 @@ fn enumerate_devices() -> shiguredo_video_device::Result<impl shiguredo_video_de
 | `examples/device_list.rs` | `for device in &device_list` → `for device in device_list.devices()`、`VideoDeviceList::enumerate()` → バックエンド別具象型 |
 | `examples/device_info.rs` | `for device in &device_list`（2 箇所）→ `for device in device_list.devices()`、`VideoDeviceList::enumerate()` → バックエンド別具象型 |
 | `CHANGES.md` | `## develop` に `[CHANGE]` エントリ（trait 化）、`[ADD]` エントリ（`to_raw` の全プラットフォーム公開）、`[FIX]` エントリ（Windows の再 start バグ修正）を追加 |
+
+## 解決方法
+
+trait 化ではなく enum 化を採用した。`VideoDevice`、`VideoDeviceList`、`VideoCapture` を enum の newtype ラッパーとして実装し
+、内部でプラットフォーム/バックエンド別の具象型を保持する方式にした。これにより:
+
+- trait による型レベルの同一インターフェース保証の代わりに、enum のバリアント一致チェックでコンパイル時の安全性を確保
+- GAT を使わないため `dyn` による動的ディスパッチや trait object の制約がない
+- `VideoCapture::new()` 等のコンストラクタを enum 側の関連関数として提供することで、利用者の `#[cfg]` 分岐を削減
+- バックエンド別の feature flag 相互排他制約を撤廃し、同一バイナリで両バックエンドの共存を可能にした
+
+FFI シンボル衝突の解決（C 関数名のプレフィックス付加、ヘッダ分割）は本 issue の提案通りに実施した。
