@@ -6,7 +6,7 @@ Polished: 2026-06-10
 
 ## なぜこの対応が必要か
 
-USB Web カメラの多くは、**高解像度 (1080p 以上)** や **高フレームレート (30 fps 以上)** で **MJPEG (Motion JPEG, V4L2_PIX_FMT_MJPEG)** を主要フォーマットとして公開する。USB UVC 仕様上の isochronous 転送帯域制約やコスト最適化のため、カメラ側が **MJPEG のみを公開する** ケースが多い。
+USB Web カメラの多くは、**高解像度 (1080p 以上)** や **高フレームレート (30 fps 以上)** で **MJPEG (Motion JPEG, V4L2_PIX_FMT_MJPEG)** を主要フォーマットとして公開する。カメラ側が **MJPEG のみを公開する** ケースが多い。
 
 現在の V4L2 バックエンドは **NV12 / YUY2 / I420 の 3 フォーマットしか認識しない** ため、
 
@@ -18,9 +18,18 @@ USB Web カメラの多くは、**高解像度 (1080p 以上)** や **高フレ�
 
 ## 設計方針
 
-### `mjpeg` feature による opt-in 化
+### `PixelFormat::Mjpeg` は常に定義する
 
-MJPEG 対応は **新規 Cargo feature `mjpeg` を有効化したときのみ** 利用可能にする。
+`PixelFormat::Mjpeg` バリアントを feature フラグで増減させると、全プラットフォームの match 式に `#[cfg(feature = "mjpeg")]` ガードが必要になり、保守が極めて困難になる。このため、**`PixelFormat::Mjpeg` は `mjpeg` feature の有無に関わらず常に定義する**。
+
+`mjpeg` feature は **キャプチャ実装側の可否** のみを制御する:
+
+- `mjpeg` feature 有効かつ V4L2 環境: MJPEG キャプチャが動作する
+- それ以外の環境で `PixelFormat::Mjpeg` を指定した場合: 実行時エラー (`Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)`) を返す
+
+動機: JPEG は圧縮ストリームであり `VideoFrame::data` の意味がピクセルフォーマットと異なるため、破損 JPEG の取り扱い含めて利用者に明示的な opt-in を求める必要がある。これは AGENTS.md「性能より堅牢性を優先」と整合する。
+
+### `mjpeg` feature の定義
 
 ```toml
 [features]
@@ -40,26 +49,16 @@ mjpeg = ["v4l2"]
 
 `mjpeg = ["v4l2"]` 依存により、`mjpeg` 単独有効化は不可。V4L2 バックエンドがなければ MJPEG パススルーは動作しない設計を Cargo の依存解決層で明文化する。
 
-動機:
-
-1. パススルーで届く **破損 JPEG の取り扱い責務** を負える利用者だけが opt-in する設計が、AGENTS.md「性能より堅牢性を優先」と整合する
-2. JPEG はピクセル展開と異なり、`VideoFrame::data` のスライスの意味が変わる (NV12 等の Y プレーンではなく圧縮ストリーム) ため、明示的なスイッチを利用者に意識させる
-
 ### `build.rs` と C 側の feature 連動ガード
 
-feature OFF 時に「公開 API および挙動が完全に変化しない」ことを保証するため、**C 側 `src/video_v4l2.c` も feature でガード** する。具体的には:
+feature OFF 時に C 側で MJPEG がフィルタされることを保証するため、**C 側 `src/video_v4l2.c` も feature でガード** する。具体的には:
 
-1. `build.rs` の `main()` 冒頭、`check-cfg` 群 (13-20 行) に `enable_mjpeg` と `enable_default_mjpeg` (将来の拡張用) を追記する
-2. `build.rs` の **全プラットフォーム共通** の位置 (feature チェック後、target_os 分岐前) で `CARGO_FEATURE_MJPEG` が有効なら `println!("cargo::rustc-cfg=enable_mjpeg")` を発行する。これにより macOS / Windows でも `enable_mjpeg` cfg が有効になり、`capture_ffi.rs` と `capture_mf.rs` の match 網羅性が保たれる
-3. `build_linux_v4l2` (`build.rs:120-130`) に `cfg!(enable_mjpeg)` 相当のチェックを追加し、`cc::Build::define("SHIGUREDO_VIDEO_DEVICE_MJPEG", None)` を呼ぶ分岐を追加する
+1. `build.rs` の `main()` 冒頭、`check-cfg` 群 (13-20 行) に `println!("cargo::rustc-check-cfg=cfg(enable_mjpeg)");` を追記する
+2. `build.rs` の Linux `"linux"` アーム内で `CARGO_FEATURE_MJPEG` が有効なら `println!("cargo::rustc-cfg=enable_mjpeg")` を発行する (V4L2 cfg 発行の直後)
+3. `build_linux_v4l2` (`build.rs:120-130`) に `CARGO_FEATURE_MJPEG` 検出時の分岐を追加し、`cc::Build::define("SHIGUREDO_VIDEO_DEVICE_MJPEG", "1")` を呼ぶ。`"1"` を明示的に渡すのは、`None` で値なしマクロを生成すると libclang の AST 解析で誤検出される可能性があるため。`"1"` により明示的な有効化フラグとして扱う
 4. `src/video_v4l2.c` の MJPEG 関連コード (`convert_v4l2_pixel_format` / `convert_video_pixel_format_to_v4l2` / `capture_thread` の MJPEG 分岐、`MJPEG_MAX_PAYLOAD_BYTES` 定数) を `#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG` で囲む
-5. Rust 側の MJPEG 関連コードは `#[cfg(enable_mjpeg)]` でガードする。`enable_mjpeg` は全プラットフォームで発行されるため、macOS / Windows でも match 網羅性が保たれる
-6. `src/video.h` の `VIDEO_PIXEL_FORMAT_MJPG` 定数と `FrameCallback` の MJPEG 仕様コメントは **feature ガードしない** (C ABI ヘッダとして常に提供。第三者再利用者が必要とする可能性)
-
-これにより:
-
-- feature OFF: C 側 `convert_v4l2_pixel_format` は MJPEG を従来どおり `default: 0` で除外する → `enumerate_device_formats` でスキップされ `formats()` に MJPEG エントリは出ない (現状と完全同一)
-- feature ON: C 側で MJPEG を `VIDEO_PIXEL_FORMAT_MJPG` に変換 → Rust 側で `PixelFormat::Mjpeg` として処理
+5. Rust 側のキャプチャ実装内の MJPEG 分岐は `#[cfg(enable_mjpeg)]` で実際のパススルー処理をガードし、`#[cfg(not(enable_mjpeg))]` 側は `return` (フレームコールバック) または `Err(Error::UnsupportedPixelFormat(...))` (キャプチャ初期化) を返す
+6. `src/video.h` の `VIDEO_PIXEL_FORMAT_MJPG` 定数と `FrameCallback` の MJPEG 仕様コメントは **feature ガードしない** (C ABI ヘッダとして常に提供)
 
 ### パススルー方式
 
@@ -69,17 +68,17 @@ V4L2 から受け取った **JPEG ペイロードをデコードせずにその�
 
 1. AGENTS.md 「**依存は最小限にすること**」と整合する (JPEG デコーダ依存を持ち込まない)
 2. AGENTS.md 「**性能より堅牢性を優先すること**」と整合する (JPEG パースのバグ・脆弱性を抱えない)
-3. 利用者は **ハードウェア JPEG デコーダ** や **GPU デコード** を選べる
-4. ライブラリの責務は **デバイス I/O** であって、コーデックではない
+3. ライブラリの責務は **デバイス I/O** であって、コーデックではない (利用者はハードウェア JPEG デコーダや GPU デコードを自由に選べる)
 
-破損 JPEG (`V4L2_BUF_FLAG_ERROR` 付きフレームを含む) もそのまま通す。SOI (0xFFD8) / EOI (0xFFD9) のサニタイズは行わない。利用者は JPEG デコーダ側でエラー検出する責務を負う。`VideoFrame::data` の rustdoc にこの注意を明示する。
+破損 JPEG (`V4L2_BUF_FLAG_ERROR` 付きフレームを含む) もそのまま通す。SOI (0xFFD8) / EOI (0xFFD9) のサニタイズは行わない。利用者は JPEG デコーダ側でエラー検出する責務を負う。注意: `V4L2_BUF_FLAG_ERROR` の未検査は既存の全フォーマット (NV12 / I420 / YUYV) に共通する挙動であり、MJPEG に限定されない。`VideoFrame::data` の rustdoc にはこの注意を全フォーマット横断の警告として追記する。
 
-### `[ADD]` (後方互換のある追加) として扱う
+### `[CHANGE]` (後方互換のない変更) として扱う
 
-`mjpeg` feature は default OFF のため、有効化しない既存利用者の `PixelFormat` への `match` は壊れない。C 側も feature ガードされるため、feature OFF での `formats()` 結果も従来と同一。
+`PixelFormat` enum に `Mjpeg` バリアントを追加すると、`pub enum` に `#[non_exhaustive]` が付与されていないため、`PixelFormat` に対して exhaustive match を書いている外部コードがコンパイルエラーになる。よって本変更は `[CHANGE]` (後方互換のない変更) として扱う。
 
-- `CHANGES.md` のエントリ種別: **`[ADD]`**
-- ブランチ名: **`feature/add-v4l2-mjpeg-passthrough`**
+- `CHANGES.md` のエントリ種別: **`[CHANGE]`**
+- ブランチ名: **`feature/change-v4l2-mjpeg-passthrough`**
+- 移行ガイド: `CHANGES.md` の `[CHANGE]` エントリで `Mjpeg` アーム追加の必要性を説明する。`PixelFormat` の doc comment にも exhaustive match 破壊の注意を追記する。将来的な `#[non_exhaustive]` 化は別 issue で扱う
 
 ### C ABI 契約の明示文書化
 
@@ -90,49 +89,40 @@ C コールバック `FrameCallback` (`src/video.h:36-45`) の **シグネチャ
 - NV12 / YUY2 / I420 では `stride` は **「バイト/行」**
 - MJPEG では `stride` は **「JPEG ペイロード長 (バイト)」**
 - 単位は `pixel_format` に依存する。**C ABI 利用者はこの契約に基づいて分岐する責務を負う**
+- 注意: `stride` 引数の意味二重化は可変長フォーマット（MJPEG / JPEG / H.264 圧縮ストリーム等）のパススルー追加が増えるほど C ABI 利用者の分岐負担が増大する設計上の制約である。根本対策は C ABI の変更が必要だが、後方互換性のため本 issue では現行シグネチャを維持する
 
-Rust 公開 API (`VideoFrame::stride`) では MJPEG のとき **常に 0** を返し、利用者は `data.len()` で長さを得る。C ABI 層と Rust 公開 API 層で意味を分離することで、Rust 利用者には `stride` の意味を二重化しない。Rust 内部の `mjpeg_payload_bytes` ヘルパは `payload_size: i32` の引数名とし、呼び出し側コード `mjpeg_payload_bytes(stride)` の意図が分かるよう、関数定義コメントで「C ABI の `stride` 引数 (i32) を長さスロットに流用する経路」と明示する。
+Rust 公開 API (`VideoFrame::stride`) では MJPEG のとき **常に 0** を返し、利用者は `data.len()` で JPEG ペイロード長を得る。C ABI 層と Rust 公開 API 層で意味を分離することで、Rust 利用者には `stride` の意味を二重化しない。`VideoFrame::data` の rustdoc に「MJPEG の場合は通常の行ストライドではなく JPEG 圧縮データが格納される。長さは `data.len()` で取得すること」と明記する。Rust 内部の `mjpeg_payload_bytes` ヘルパは `payload_size: i32` の引数名とし、呼び出し側コード `mjpeg_payload_bytes(stride)` の意図が分かるよう、関数定義コメントで「C ABI の `stride` 引数 (i32) を長さスロットに流用する経路」と明示する。
 
 ### 既存挙動を変えない方針 (フォールバックとサンプル)
 
 `video_session_create` の **既定フォールバック (NV12 → YUYV)** は変更しない。MJPEG は **`mjpeg` feature 有効** かつ **`VideoCaptureConfig::pixel_format = Some(PixelFormat::Mjpeg)` で明示要求** された場合のみ選択する。
 
-- 既定で MJPEG にフォールバックすると、`pixel_format == None` で YUV を期待していた既存利用者のコードが MJPEG 受信時に静かに壊れる
-- `examples/camera_preview.rs` (raw_player は YUV のみ対応) も変更不要
-- 既存実機テスト `test_capture_frames` (`tests/test_capture.rs:70`) の `assert!(frame.stride > 0)` も既定 (NV12/YUYV) で動作するため修正不要
+- 既定で MJPEG にフォールバックすると、`pixel_format == None` で YUV を期待していた既存利用者のコードが MJPEG 受信時に静かに壊れる (例: `frame.data` を Y プレーンと仮定して画素処理を行うコードが JPEG 圧縮データを受け取る)
+- `examples/camera_preview.rs` の raw_player コアロジックは既定フォールバックのため対象外 (MJPEG 用 match アームは `enqueue_video_frame` に本 issue で追加する)
 
-### macOS でのエラー型統一
+### 実行時エラーの統一
 
-feature 有効時に `VideoCaptureConfig::pixel_format = Some(PixelFormat::Mjpeg)` を macOS に渡したときのエラー型を `Error::UnsupportedPixelFormat(Mjpeg)` に統一する:
+`PixelFormat::Mjpeg` が常に定義されるため、`mjpeg` feature 非有効時や非 V4L2 プラットフォームで `PixelFormat::Mjpeg` をキャプチャ要求した場合のエラー型を `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` に統一する。**すべてのバックエンドで**同一のエラー型を返す。
 
-- Windows: `pixel_format_to_guid(Mjpeg) = None` → 既存経路で `Error::UnsupportedPixelFormat(Mjpeg)` (`types.rs:352-358` → `capture_mf.rs` 経由)
-- macOS: 現状経路では `convert_video_pixel_format_to_cv` の `default: 0` (`video_avf.m`) → C 側 NULL 返却 → `Error::SessionCreateFailed`。これを揃えるため、`capture_ffi.rs::FfiCaptureImpl::new` の `Unknown` 早期エラー (86 行) の直後に macOS 用早期エラー分岐を追加する。`cfg(enable_avf)` ガード下で行う:
-
-```rust
-// FfiCaptureImpl::new() 内、requested_pixel_format 計算の直後 (capture_ffi.rs:86 付近)
-#[cfg(all(enable_mjpeg, enable_avf))]
-if matches!(config.pixel_format, Some(PixelFormat::Mjpeg)) {
-    return Err(Error::UnsupportedPixelFormat(PixelFormat::Mjpeg));
-}
-```
-
-`VideoCapture::new_avf` (capture.rs:66-73) は `FfiCaptureImpl::new_avf` に委譲するだけであり、早期エラーは `FfiCaptureImpl::new` の入口で行うのが責務分離上正しい。
+- Rust 側 `FfiCaptureImpl::new` で `#[cfg(not(enable_mjpeg))]` ガード下の早期エラーチェック
+- `FfiCaptureImpl::new_pipewire` で MJPEG を常に拒否 (PipeWire は MJPEG 非対応)
+- Windows 側は `pixel_format_to_guid(Mjpeg) = None` により `capture_mf.rs` の既存経路でも `UnsupportedPixelFormat(Mjpeg)` が返る
 
 ### スコープ
 
-**対象** (feature 有効時のみ):
+**対象**:
 
-- V4L2 バックエンドでの MJPEG パススルーキャプチャ
-- `PixelFormat::Mjpeg` バリアントとその FourCC 値の expose。Windows では `pixel_format_to_guid` が `Mjpeg => None` を返すため列挙されない非対称が生じるが、本 issue は「Linux 専用機能」として扱う
-- macOS で `Some(PixelFormat::Mjpeg)` を渡したときのエラー型を `UnsupportedPixelFormat(Mjpeg)` に統一
-- Windows 側 `pixel_format_to_guid` (`types.rs:352-358`) / `process_sample` (`capture_mf.rs:455-576`) の `match` 網羅維持 (バリアント追加に伴う機械的な付随変更)
+- V4L2 バックエンドでの MJPEG パススルーキャプチャ (feature 有効時のみ)
+- `PixelFormat::Mjpeg` バリアントとその FourCC 値の常時定義 (feature 非依存)
+- 全プラットフォームでの match 網羅性確保と実行時エラー統一
+- `VideoFrame` / `VideoFrameOwned` / `VideoCaptureConfig` の rustdoc に MJPEG 仕様を明記
 
 **対象外 (別 issue)**:
 
 - PipeWire の MJPEG 対応 (`SPA_VIDEO_FORMAT_ENCODED` 経由で構造が異なる)
-- Windows Media Foundation での MJPEG キャプチャ実装。`guid_to_pixel_format` への `MFVideoFormat_MJPG` マップ追加は列挙とキャプチャをセットで別 issue。本 issue では `guid_to_pixel_format` は変更しない (列挙だけ Linux と揃えても Windows ではキャプチャ不能のため、`closed/0016` 流の不整合許容よりも「Linux 専用機能」と明確に切る方が API 整合性が高い)
+- Windows Media Foundation での MJPEG キャプチャ実装。`guid_to_pixel_format` への `MFVideoFormat_MJPG` マップ追加は列挙とキャプチャをセットで別 issue
 - macOS AVFoundation での MJPEG キャプチャ実装
-- V4L2 の `V4L2_PIX_FMT_JPEG` (`0x4745504A`, JFIF 限定の別 FourCC) 対応
+- V4L2 の `V4L2_PIX_FMT_JPEG` (`0x4745504A`) 対応。Video4Linux 仕様上、`V4L2_PIX_FMT_MJPEG` (`0x47504A4D`) と `V4L2_PIX_FMT_JPEG` (`0x4745504A`) は別の FourCC として定義されている。`MJPEG` は UVC Motion JPEG、`JPEG` は JFIF 準拠 JPEG の意味論だが、実際のデバイス実装ではどちらを使うかベンダー依存。本 issue では主要な MJPEG に対応し、JPEG の対応は別 issue で実施する（追加の判別ロジックとテストが必要なためスコープを分離する）
 - `PixelFormat` enum の `#[non_exhaustive]` 化 (本 issue は MJPEG 対応に専念。`#[non_exhaustive]` 化は単独で完結する `[CHANGE]` として別 issue で扱う)
 - 実機検証 / MJPEG カメラの fuzzing
 - MJPEG デコード API のライブラリ内提供 (依存ゼロ方針のため永続的にスコープ外)
@@ -140,7 +130,7 @@ if matches!(config.pixel_format, Some(PixelFormat::Mjpeg)) {
 ## 現状コード (調査結果)
 
 - `Cargo.toml:45-54` — features は 9 件。`default = ["default-v4l2", "default-avf", "default-mf"]`。`v4l2 = []` は存在
-- `build.rs:77-101` — Linux セクションで `CARGO_FEATURE_V4L2` により `enable_v4l2` cfg を発行。`enable_mjpeg` は未発行
+- `build.rs:34-36` — Linux セクションで `CARGO_FEATURE_V4L2` により `enable_v4l2` cfg を発行。`enable_mjpeg` は未発行
 - `build.rs:120-130` — `build_linux_v4l2` は `video_v4l2.c` を `"video_v4l2"` としてコンパイル。feature 連動の `define` なし
 - `src/video.h:13-15` — `VIDEO_PIXEL_FORMAT_*` 定数は NV12 / YUY2 / I420 の 3 種類のみ
 - `src/video.h:36-45` — `FrameCallback` のコメント。MJPEG に関する記述なし
@@ -149,17 +139,17 @@ if matches!(config.pixel_format, Some(PixelFormat::Mjpeg)) {
 - `src/types.rs:44-51` — `to_raw` は cfg ガードなし。全プラットフォームで常にコンパイルされる
 - `src/types.rs:33-41` — `from_raw` は `#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]` ガード
 - `src/types.rs:54-61` — `name` は cfg ガードなし
-- `src/types.rs:352-358` — Windows: `pixel_format_to_guid` は `pub(crate)`。バリアント追加時は分岐追加が必須
+- `src/types.rs:352-358` — Windows: `pixel_format_to_guid` は `pub(crate)`
 - `src/video_v4l2.c:54-65` — `convert_v4l2_pixel_format`: V4L2 → FourCC 変換。MJPEG 分岐なし (`default: return 0`)
 - `src/video_v4l2.c:67-78` — `convert_video_pixel_format_to_v4l2`: FourCC → V4L2 変換。MJPEG 分岐なし
 - `src/video_v4l2.c:102-106` — `enumerate_device_formats` は `convert_v4l2_pixel_format` が 0 を返すフォーマットをスキップ
 - `src/video_v4l2.c:451-466` — `video_session_create` の既定フォールバック (NV12 → YUYV)
-- `src/video_v4l2.c:574-612` — `capture_thread` は NV12 / I420 / YUYV の `if / else if / else if` 連鎖
+- `src/video_v4l2.c:574-612` — `capture_thread` は NV12 / I420 / YUYV の `if / else if / else if` 連鎖。612 行目の `}` は YUYV の `else if` 閉じ括弧
 - `src/capture_ffi.rs:86-92` — `FfiCaptureImpl::new` で `PixelFormat::Unknown(_)` は早期エラー
 - `src/capture_ffi.rs:235-336` — `frame_callback` と match 分岐。`from_raw` 変換は 258 行、`Unknown(_) => return` は 332 行
 - `src/capture_ffi.rs:258` — `let pf = PixelFormat::from_raw(pixel_format)` で未知フォーマットは Unknown 化
 - `src/frame_math.rs:2-40` — ストライドベースのフレームサイズ計算ヘルパ (`nv12_plane_sizes` / `i420_plane_sizes` / `yuy2_packed_frame_bytes`)。MJPEG 用ヘルパなし
-- `src/capture_mf.rs:455-576` — `process_sample` の `match pixel_format`。各分岐は `buffer.Unlock()` を呼んでから return / 処理
+- `src/capture_mf.rs:455-576` — `process_sample` の `match pixel_format`。`_buf_guard` (486 行) 経由で Lock/Unlock が管理され、各フォーマット分岐でフレーム処理
 - `src/capture.rs:29-60` — `VideoCapture::new` は `#[cfg]` でバックエンド別コンストラクタに委譲する薄いラッパー
 - `src/video_avf.m` — macOS `convert_video_pixel_format_to_cv` は MJPEG を `default: 0` で除外
 - `src/lib.rs:17-40` — モジュール構成。`mjpeg` feature に関する記述なし
@@ -174,6 +164,21 @@ if matches!(config.pixel_format, Some(PixelFormat::Mjpeg)) {
 mjpeg = ["v4l2"]
 ```
 
+`[dev-dependencies]` に `proptest` を追加 (AGENTS.md「PBT は proptest を使うこと」に従う):
+
+```toml
+[dev-dependencies]
+proptest = "1"
+```
+
+`Cargo.toml` 末尾に `[[test]]` セクションを追加 (`pbt/tests/prop_types.rs` をテストとして認識させる):
+
+```toml
+[[test]]
+name = "prop_types"
+path = "pbt/tests/prop_types.rs"
+```
+
 既存の `default` や `default-*` は変更しない。
 
 ### 2. `build.rs`
@@ -184,16 +189,19 @@ mjpeg = ["v4l2"]
 println!("cargo::rustc-check-cfg=cfg(enable_mjpeg)");
 ```
 
-**全プラットフォーム共通** の位置 (feature チェック後、target_os の match 分岐の前。`build.rs:61` 付近) で MJPEG feature 用の cfg を発行:
+**Linux** の `"linux"` アーム内 (`build.rs:33-47`)、`CARGO_FEATURE_V4L2` の cfg 発行 (34-36 行) の直後に MJPEG feature 用の cfg を発行:
 
 ```rust
-// 全プラットフォーム共通（target_os 分岐の前）
-if env::var("CARGO_FEATURE_MJPEG").is_ok() {
-    println!("cargo::rustc-cfg=enable_mjpeg");
+"linux" => {
+    // ... 既存の v4l2 チェック ...
+    if env::var("CARGO_FEATURE_MJPEG").is_ok() {
+        println!("cargo::rustc-cfg=enable_mjpeg");
+    }
+    // ... 既存の pipewire チェック ...
 }
 ```
 
-**重要な設計判断**: `enable_mjpeg` を Linux セクション内ではなく全プラットフォームで発行する理由は、`PixelFormat::Mjpeg` バリアントが `#[cfg(feature = "mjpeg")]` (OS 非依存) で存在するため、`capture_ffi.rs::frame_callback` と `capture_mf.rs::process_sample` の match 網羅性を macOS / Windows でも保つ必要があるため。
+`mjpeg = ["v4l2"]` 依存により `CARGO_FEATURE_MJPEG` が有効なら `CARGO_FEATURE_V4L2` も必ず有効であるため、`enable_v4l2` と `enable_mjpeg` の両方が発行される。ただし、`build.rs` の cfg 発行は Linux `"linux"` アーム内のみで行うため、macOS / Windows で `--features mjpeg` を指定しても `enable_mjpeg` は発行されず、Rust 側の `#[cfg(not(enable_mjpeg))]` チェックが機能する。MJPEG パススルーは Linux V4L2 でのみ動作する。
 
 `build_linux_v4l2` (`build.rs:120-130`) に feature 連動の `define` を追加 (Linux のみ):
 
@@ -206,13 +214,15 @@ fn build_linux_v4l2(src_dir: &Path) {
     let mut build = cc::Build::new();
     build.file(src_dir.join("video_v4l2.c"));
     if std::env::var("CARGO_FEATURE_MJPEG").is_ok() {
-        build.define("SHIGUREDO_VIDEO_DEVICE_MJPEG", None);
+        build.define("SHIGUREDO_VIDEO_DEVICE_MJPEG", "1");
     }
     build.compile("video_v4l2");
 
     println!("cargo::rustc-link-lib=pthread");
 }
 ```
+
+`let mut build` による可変変数パターンは、条件付き `define` 追加のため builder チェーンでは書けないためやむを得ない。
 
 ### 3. `src/video.h`
 
@@ -225,9 +235,8 @@ fn build_linux_v4l2(src_dir: &Path) {
 
 `FrameCallback` のコメントに **明示的契約として** 追記:
 
-- `pixel_format` の列挙コメント (`src/video.h:27`) に `VIDEO_PIXEL_FORMAT_MJPG` を追加
-
-- MJPEG (`VIDEO_PIXEL_FORMAT_MJPG`) の場合: `data` は JPEG ペイロード先頭、`uv_data` は NULL、**`stride` 引数は JPEG ペイロード長 (バイト)** を持つ (バイト/行ではない)、`stride_uv` は 0
+- `pixel_format` の列挙コメント (`src/video.h:27`) を `VIDEO_PIXEL_FORMAT_NV12 / VIDEO_PIXEL_FORMAT_YUY2 / VIDEO_PIXEL_FORMAT_I420 / VIDEO_PIXEL_FORMAT_MJPG` に変更
+- MJPEG (`VIDEO_PIXEL_FORMAT_MJPG`) の場合: `data` は JPEG ペイロード先頭、`uv_data` は NULL、**`stride` 引数は JPEG ペイロード長 (バイト)** (バイト/行ではない)、`stride_uv` は 0
 - `pixel_format` ごとに `stride` の単位が異なる契約であることを明示
 - `width / height` は V4L2 でネゴシエートした論理サイズ
 - `pixel_buffer` は **常に NULL** (Linux 契約は `closed/0007` で確定)
@@ -239,9 +248,14 @@ fn build_linux_v4l2(src_dir: &Path) {
 ```c
 #ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
 // MJPEG ペイロード長の絶対上限 (256 MiB)
-// 根拠: 4K MJPEG の実フレームサイズは USB UVC で 5〜15 MB、8K MJPEG で 20〜60 MB、
-// 8K HDR で 90 MB 超に達しうる。256 MiB は将来の高解像度カメラを見越した余裕値であり、
-// 異常ドライバや V4L2_BUF_FLAG_ERROR 付き巨大値に対する防御線として絶対上限を設ける。
+// 根拠: UVC 1.5 仕様のアイソクロナス転送最大ペイロードは High Speed (480 Mbps) で 3072 バイト/マイクロフレーム、
+// SuperSpeed (5 Gbps) で 1024 バイト/マイクロフレーム。
+// 実フレームサイズは 4K MJPEG で 5〜15 MiB、8K MJPEG で 20〜60 MiB、8K HDR で 90 MiB 超に達しうる。
+// V4L2 の `bytesused` は `u32` で最大 4 GiB だが、256 MiB は以下の理由で選択:
+// 1. 将来の 8K や 16K 高フレームレートカメラを見越した十分な余裕値
+// 2. `int` (32-bit signed) でサイズを扱う既存コードパスとの互換性 (256 MiB < INT32_MAX)
+// 3. malloc/stack 割り当てにおける現実的な上限として過度に大きくない
+// 異常ドライバや V4L2_BUF_FLAG_ERROR 付き巨大値に対する防御線として機能する。
 static const size_t MJPEG_MAX_PAYLOAD_BYTES = 256u * 1024u * 1024u;
 #endif
 ```
@@ -257,27 +271,54 @@ case VIDEO_PIXEL_FORMAT_MJPG: return V4L2_PIX_FMT_MJPEG;  // convert_video_pixel
 #endif
 ```
 
-`capture_thread` (`src/video_v4l2.c:574-613`) の MJPEG 分岐は、既存の `else if (session->pixel_format == V4L2_PIX_FMT_YUYV)` (603-612 行) の後ろに `#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG` ガード付きで `else if (session->pixel_format == V4L2_PIX_FMT_MJPEG)` として追加:
+`capture_thread` (`src/video_v4l2.c`、YUYV の `else if` ブロック直後。新規定数追加で行番号は 2 行ずれるため絶対行番号ではなく YUYV `else if` 閉じ括弧の直後という相対位置で考える) の MJPEG 分岐を以下の手順で追加する:
 
-- `bytesused == 0` は既存ガード (567 行) でスキップ済み
-- `available = min(bytesused, mmap_len)` も既存どおり
-- **絶対上限ガード**: `if (available > MJPEG_MAX_PAYLOAD_BYTES) goto requeue;` を入れる。絶対上限は異常ドライバや `V4L2_BUF_FLAG_ERROR` 付き巨大 `bytesused` に対する防御線。AGENTS.md「ログはできるだけださない」方針に従い、上限超過のログ出力は行わない (サイレントスキップ)
-- コールバック呼び出し: `data = mmap 先頭`, `uv_data = NULL`, `width / height = session->width / height`, `stride = (int)available`, `stride_uv = 0`, `pixel_format = VIDEO_PIXEL_FORMAT_MJPG`, `pixel_buffer = NULL`。`(int)available` キャストは、上限ガードにより `available <= MJPEG_MAX_PAYLOAD_BYTES = 256 MiB < INT_MAX` (約 2 GiB) が保証されるため安全
-- SOI (0xFFD8) / EOI (0xFFD9) のサニタイズはしない (パススルー方針)
-- `V4L2_BUF_FLAG_ERROR` フラグ付きフレームもそのまま通す
+```c
+#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
+            } else if (session->pixel_format == V4L2_PIX_FMT_MJPEG) {
+                if (available > MJPEG_MAX_PAYLOAD_BYTES) {
+                    goto requeue;
+                }
+                session->callback(session->user_data, data, NULL,
+                                  session->width, session->height,
+                                  (int)available, 0,
+                                  VIDEO_PIXEL_FORMAT_MJPG, timestamp_us, NULL);
+            }
+#else
+            }
+#endif
+```
 
-`video_session_create` の既定フォールバック (`src/video_v4l2.c:451-466`) は **変更しない**。
+補足:
+- `#ifdef` 有効時: `} else if (MJPEG) { ... }` が現れ、YUYV ブロックを閉じつつ MJPEG ブロックを開始する
+- `#ifdef` 非有効時: `#else` 節の `}` のみが残り、YUYV ブロックを閉じる。if/else if チェーンが構文破綻しない
+- `goto requeue` による MJPEG_MAX_PAYLOAD_BYTES (256 MiB) 超過時のサイレント破棄は、既存全フォーマットのエラーフレームスキップと一貫する
 
 ### 5. `src/types.rs`
 
-`PixelFormat::Mjpeg` バリアントと関連を `#[cfg(feature = "mjpeg")]` でガード。
-
-**注意**: 既存の `VIDEO_PIXEL_FORMAT_NV12` 等の定数は cfg ガードなし (11-13 行)。`to_raw` (`types.rs:44-51`) と `name` (`types.rs:54-61`) も cfg ガードなしで常にコンパイルされる。このため `VIDEO_PIXEL_FORMAT_MJPG` 定数は OS 条件を付けず `#[cfg(feature = "mjpeg")]` のみで定義する必要がある（Windows で `feature = "mjpeg"` が有効な場合も `to_raw` がコンパイルされるため）:
+#### 5a. 定数追加
 
 ```rust
-#[cfg(feature = "mjpeg")]
+// MJPEG (Motion JPEG)
 pub(crate) const VIDEO_PIXEL_FORMAT_MJPG: u32 = 0x47504A4D;
+```
 
+#### 5b. `PixelFormat` 列挙型の拡張
+
+`PixelFormat::Mjpeg` バリアントを常に定義する (cfg ガードを一切付けない)。
+
+`PixelFormat` enum の doc comment (`src/types.rs:15-18`) を以下の形に修正する（既存 doc の不正確さ — `from_raw` が Windows で利用できないにも関わらず「全プラットフォームで利用可能」と記述されている — も同時に修正する。この修正は `[CHANGE]` のリリースノートに含めるが、doc 修正単体としての `[FIX]` エントリは不要）:
+
+```rust
+/// ピクセルフォーマット
+///
+/// 列挙・キャプチャは Media Foundation の `GUID` と内部で対応付けている。
+/// `to_raw` は全プラットフォームで利用可能。
+/// `from_raw` は FFI バックエンド有効時 (AVF / V4L2 / PipeWire) に利用可能。
+/// それ以外 (Windows/mf) ではコンパイルエラーになる。
+```
+
+```rust
 pub enum PixelFormat {
     Nv12,
     Yuy2,
@@ -285,26 +326,62 @@ pub enum PixelFormat {
     /// MJPEG (Motion JPEG)
     ///
     /// 圧縮された JPEG フレーム。デコードは利用者の責務。
-    /// `mjpeg` feature 有効時のみ存在する。
-    /// V4L2 バックエンドでのみキャプチャ可能。macOS / Windows でキャプチャ要求すると
-    /// `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` を返す。
+    /// V4L2 バックエンド + `mjpeg` feature 有効時のみキャプチャ可能。
+    /// それ以外の環境でキャプチャ要求すると `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` を返す。
     /// `VideoFrame::data` は JPEG ペイロード、`uv_data` は `None`、
     /// `stride` / `stride_uv` は **常に 0** (意味を持たない)。
     /// **注意**: `V4L2_BUF_FLAG_ERROR` 付きフレーム (破損 JPEG) もそのまま渡る。利用者は JPEG デコーダ側で
     /// エラー検出する責務を負う。
-    #[cfg(feature = "mjpeg")]
     Mjpeg,
     Unknown(u32),
 }
 ```
 
-変更点:
+#### 5c. `from_raw` の拡張
 
-- `from_raw` (`types.rs:33-41`) の match に `#[cfg(feature = "mjpeg")] VIDEO_PIXEL_FORMAT_MJPG => PixelFormat::Mjpeg` を追加。`from_raw` は `#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]` でガード済み。`mjpeg = ["v4l2"]` 依存により `mjpeg` 有効時は `enable_v4l2` も有効のため cfg 条件は常に充足する
-- `to_raw` (`types.rs:44-51`) の match に `#[cfg(feature = "mjpeg")] PixelFormat::Mjpeg => VIDEO_PIXEL_FORMAT_MJPG` を追加。`to_raw` は cfg ガードなしのため、`feature = "mjpeg"` が無効な場合 `Mjpeg` バリアントは存在せず match は網羅的
-- `name` (`types.rs:54-61`) の match に `#[cfg(feature = "mjpeg")] PixelFormat::Mjpeg => "MJPEG"` を追加
-- Windows 側 `pixel_format_to_guid` (`types.rs:352-358`) に **`#[cfg(feature = "mjpeg")] PixelFormat::Mjpeg => None`** を追加 (網羅性維持、必須)
-- Windows 側 `guid_to_pixel_format` は **変更しない** (本 issue では Windows MJPEG 列挙対応はスコープ外)
+`from_raw` (`types.rs:33-41`) の match に `VIDEO_PIXEL_FORMAT_MJPG => PixelFormat::Mjpeg` を追加。`from_raw` は `#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]` でガード済みだが、`VIDEO_PIXEL_FORMAT_MJPG` 定数自体は cfg ガードなしで定義されるため、cfg 条件を追加する必要はない。Mjpeg 分岐は既存の `_ => PixelFormat::Unknown(raw)` の直前に配置し、`from_raw` がコンパイルされる全プラットフォームで一致する挙動とする:
+
+```rust
+VIDEO_PIXEL_FORMAT_MJPG => PixelFormat::Mjpeg,
+```
+
+#### 5d. `to_raw` の拡張
+
+`to_raw` (`types.rs:44-51`) の match に `PixelFormat::Mjpeg => VIDEO_PIXEL_FORMAT_MJPG` を追加。`to_raw` は cfg ガードなし、`Mjpeg` バリアントも常に存在するため、cfg 条件は不要:
+
+```rust
+PixelFormat::Mjpeg => VIDEO_PIXEL_FORMAT_MJPG,
+```
+
+#### 5e. `name` の拡張
+
+`name` (`types.rs:54-61`) の match に `PixelFormat::Mjpeg => "MJPEG"` を追加:
+
+```rust
+PixelFormat::Mjpeg => "MJPEG",
+```
+
+#### 5f. `Display` の拡張
+
+`Display` (`types.rs:64-68`) の match に `PixelFormat::Mjpeg => write!(f, "MJPEG")` を追加:
+
+```rust
+PixelFormat::Mjpeg => write!(f, "MJPEG"),
+```
+
+#### 5g. `pixel_format_to_guid` の拡張 (Windows のみ)
+
+Windows 側 `pixel_format_to_guid` (`types.rs:352-358`) に `PixelFormat::Mjpeg => None` を追加。`Mjpeg` バリアントは常に存在するため、cfg 条件は不要。これにより Windows で `PixelFormat::Mjpeg` を指定した場合、`capture_mf.rs` の既存経路で `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` が返る:
+
+```rust
+PixelFormat::Mjpeg => None,
+```
+
+#### 5h. `guid_to_pixel_format` は変更しない
+
+Windows 側 `guid_to_pixel_format` は **変更しない** (本 issue では Windows MJPEG 列挙対応はスコープ外)。
+
+#### 5i. `VideoFrame` / `VideoFrameOwned` の rustdoc 更新
 
 `VideoFrame` / `VideoFrameOwned` の rustdoc 更新 (`src/types.rs:199-277` 付近):
 
@@ -312,10 +389,15 @@ pub enum PixelFormat {
   - 「**MJPEG の場合は圧縮された JPEG ペイロード**」
   - 「スライス寿命は他フォーマットと同じくコールバック呼び出し中のみ (`closed/0002` 契約継承)」
   - 「**MJPEG では破損 JPEG (`V4L2_BUF_FLAG_ERROR` 付きフレーム) も含まれうる**」 (太字で警告)
-- `uv_data` / `stride` / `stride_uv` の各説明に「**MJPEG では未使用 (None / 0)**」を追記
+  - 「`V4L2_BUF_FLAG_ERROR` が立ったフレームかどうかは本 API では判別できない。利用者は JPEG デコーダのエラーから間接的に判断すること」
+- `uv_data` の説明に「**MJPEG では None**」を追記
+- `stride` の説明に「**MJPEG では 0**」を追記 (`VideoFrame` と `VideoFrameOwned` の両方)
+- `stride_uv` の説明に「**MJPEG では 0**」を追記
 - `pixel_buffer` 説明は変更不要 (Linux で NULL の契約は `closed/0007` のまま)
 
-`VideoCaptureConfig::pixel_format` (`src/types.rs:179`) に `///` doc comment を新規追加し、`mjpeg` feature 有効時に macOS / Windows で `Some(PixelFormat::Mjpeg)` を渡すと `UnsupportedPixelFormat(Mjpeg)` で失敗する旨を明記。
+#### 5j. `VideoCaptureConfig::pixel_format` の rustdoc 更新
+
+`VideoCaptureConfig::pixel_format` (`src/types.rs:179`) に `///` doc comment を新規追加し、`mjpeg` feature の有無に関わらず非 V4L2 環境 (macOS / Windows) で `Some(PixelFormat::Mjpeg)` を渡すと `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` で失敗する旨を明記。
 
 ### 6. `src/lib.rs`
 
@@ -326,118 +408,236 @@ pub enum PixelFormat {
 
 ### 7. `src/capture_ffi.rs` / `src/frame_math.rs`
 
-すべての MJPEG 関連コードを `#[cfg(enable_mjpeg)]` でガードする。
+#### 7a. 実行時エラーチェック
 
-#### 7a. macOS 用早期エラー
-
-`FfiCaptureImpl::new` (capture_ffi.rs:80-92) の `Unknown` 早期エラーの直後 (match ブロック終了直後、92 行の `};` の次の行) に追加。`cfg(enable_avf)` ガード下で行う。`enable_mjpeg` は全プラットフォームで発行されるため macOS でも有効:
+`FfiCaptureImpl::new` (capture_ffi.rs:80-92) の `Unknown` 早期エラーの直後 (match ブロック終了直後、92 行の `};` の次の行) に追加:
 
 ```rust
-// FfiCaptureImpl::new() 内 (capture_ffi.rs:86 付近)
-#[cfg(all(enable_mjpeg, enable_avf))]
+// MJPEG キャプチャは enable_mjpeg 環境 (Linux V4L2 + mjpeg feature) でのみ対応。
+// enable_mjpeg が真なら enable_v4l2 も必ず真であるため、単独チェックで十分。
+#[cfg(not(enable_mjpeg))]
 if matches!(config.pixel_format, Some(PixelFormat::Mjpeg)) {
     return Err(Error::UnsupportedPixelFormat(PixelFormat::Mjpeg));
 }
 ```
 
+このチェックでカバーされるケース:
+
+- macOS (AVF) + mjpeg feature 有効/非有効: エラー (`enable_v4l2` は Linux でのみ発行)
+- Windows (MF) + mjpeg feature 有効/非有効: エラー (同上)
+
+PipeWire バックエンドは `new_pipewire()` で個別にチェックする (後述)。Linux + mjpeg 環境では `#[cfg(not(enable_mjpeg))]` のチェックがコンパイル除去されるが、PipeWire は `new_pipewire()` 側で拒否するため `UnsupportedPixelFormat(Mjpeg)` で統一される。
+
+`FfiCaptureImpl::new_pipewire` (`capture_ffi.rs:149-156`) の先頭に MJPEG 拒否を追加:
+
+```rust
+#[cfg(enable_pipewire)]
+pub(crate) fn new_pipewire<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+where
+    F: Fn(VideoFrame<'_>) + Send + 'static,
+{
+    // PipeWire は MJPEG 非対応。feature フラグに関わらず拒否する
+    if matches!(config.pixel_format, Some(PixelFormat::Mjpeg)) {
+        return Err(Error::UnsupportedPixelFormat(PixelFormat::Mjpeg));
+    }
+    Self::new(&OPS_PIPEWIRE, config, callback)
+}
+```
+
+これにより全プラットフォーム・全バックエンドで `PixelFormat::Mjpeg` 指定時のエラー型が `UnsupportedPixelFormat(Mjpeg)` に統一される。
+
 #### 7b. `mjpeg_payload_bytes` ヘルパ (src/frame_math.rs)
 
-`nv12_plane_sizes` / `i420_plane_sizes` / `yuy2_packed_frame_bytes` (2-40 行) と同じ位置に `#[cfg(enable_mjpeg)]` ガード付きで追加。`frame_callback` から呼ばれるため、`capture_ffi.rs` と同じ cfg 条件でコンパイルされる。引数型 `i32` は `frame_callback` の `stride: i32` を流用する整合性のため。関数定義コメントで「C ABI の `stride` 引数 (i32) を長さスロットに流用する経路。呼び出し側は `mjpeg_payload_bytes(stride)` の形になる」と明示する。`payload_size <= 0` を拒否し `Some(payload_size as usize)` を返す。
+`nv12_plane_sizes` / `i420_plane_sizes` / `yuy2_packed_frame_bytes` (2-40 行) と同じ位置に `#[cfg(enable_mjpeg)]` ガード付きで追加。`frame_callback` から呼ばれるため、`capture_ffi.rs` と同じ cfg 条件でコンパイルされる。引数型 `i32` は `frame_callback` の `stride: i32` を流用する整合性のため。
+
+```rust
+/// C ABI の `stride` 引数 (i32) を JPEG ペイロード長スロットとして流用する経路。
+/// 呼び出し側は `mjpeg_payload_bytes(stride)` の形で呼ぶ。
+/// `payload_size <= 0` の場合は `None` を返す。
+#[cfg(enable_mjpeg)]
+pub(crate) fn mjpeg_payload_bytes(payload_size: i32) -> Option<usize> {
+    if payload_size <= 0 {
+        return None;
+    }
+    Some(payload_size as usize)
+}
+```
 
 #### 7c. `frame_callback` の MJPEG 分岐 (capture_ffi.rs)
 
-`match pf` (260 行の match 式。`from_raw` 呼び出しは 258 行) に `#[cfg(enable_mjpeg)]` ガード付きで新分岐を追加。既存アーム `Nv12 / I420 / Yuy2 / Unknown(_)` に対し、**`Yuy2` アーム (312-331 行) の直後、`Unknown(_)` アーム (332 行) の直前** に挿入:
+`match pf` (260 行の match 式。`from_raw` 呼び出しは 258 行) に新分岐を追加。既存アーム `Nv12 / I420 / Yuy2 / Unknown(_)` に対し、**`Yuy2` アーム (312-331 行) の直後、`Unknown(_)` アーム (332 行) の直前** に挿入。**cfg ガードは付けず、分岐内部を cfg で分ける**:
 
 ```rust
-#[cfg(enable_mjpeg)]
 PixelFormat::Mjpeg => {
-    let Some(data_size) = frame_math::mjpeg_payload_bytes(stride) else { return };
-    let data_slice = unsafe { std::slice::from_raw_parts(data, data_size) };
-    // MJPEG は uv_data を使用しない（圧縮ストリームであるため）
-    // stride/stride_uv は 0（ピクセル行の概念が存在しないため）
-    VideoFrame {
-        data: data_slice,
-        uv_data: None,
-        width,
-        height,
-        stride: 0,
-        stride_uv: 0,
-        pixel_format: pf,
-        timestamp_us,
-        pixel_buffer,
+    #[cfg(enable_mjpeg)]
+    {
+        let Some(data_size) = frame_math::mjpeg_payload_bytes(stride) else { return };
+        let data_slice = unsafe { std::slice::from_raw_parts(data, data_size) };
+        VideoFrame {
+            data: data_slice,
+            uv_data: None,
+            width,
+            height,
+            stride: 0,
+            stride_uv: 0,
+            pixel_format: pf,
+            timestamp_us,
+            pixel_buffer,
+        }
+    }
+    #[cfg(not(enable_mjpeg))]
+    {
+        // MJPEG 非対応環境では C 側で MJPEG がフィルタされるため到達しない
+        return;
     }
 }
 ```
 
-**注意**: `frame_callback` は全バックエンド (AVF / V4L2 / PipeWire) 共通であるため、PipeWire 経由で MJPEG が来た場合もこの分岐を通る。PipeWire MJPEG 対応は本 issue のスコープ外のため、この挙動は意図的 (パススルーが安全に動作する)。macOS は早期エラーでここに到達しない。
+**注意**: `frame_callback` は全バックエンド (AVF / V4L2 / PipeWire) 共通であるため、PipeWire 経由で MJPEG が来た場合もこの分岐を通る。PipeWire MJPEG 対応は本 issue のスコープ外だが、非対応環境では C 側でフィルタされるか、Rust 側の初期化時エラーでここに到達しない。
 
 ### 8. `src/capture_mf.rs`
 
-`process_sample` (`capture_mf.rs:455-576`) の `match pixel_format` に `#[cfg(enable_mjpeg)]` ガード付き分岐を追加。既存アーム順 `Nv12 / I420 / Yuy2 / Unknown(_)` に対し、**`Yuy2` アームの直後、`Unknown(_)` アームの直前** に挿入。他アームと同じく `buffer.Unlock()` を呼んでから return:
+`process_sample` (`capture_mf.rs:455-576`) の `match pixel_format` に `PixelFormat::Mjpeg` 分岐を追加。既存アーム順 `Nv12 / I420 / Yuy2 / Unknown(_)` に対し、**`Yuy2` アームの直後、`Unknown(_)` アームの直前** に挿入。cfg ガードは付けず、常にコンパイルされる:
 
 ```rust
-#[cfg(enable_mjpeg)]
 PixelFormat::Mjpeg => {
-    let _ = buffer.Unlock();
-    return;
+    // 本分岐に到達するのはバグ。pixel_format_to_guid(Mjpeg) = None により
+    // get_configured_format で UnsupportedPixelFormat(Mjpeg) が先に返るため。
+    // 万一到達しても安静にドロップせず、明示的に異常系として扱う。
+    unreachable!("MJPEG reached process_sample despite pixel_format_to_guid returning None");
 }
 ```
 
-`get_configured_format` 経路では `Some(PixelFormat::Mjpeg)` を受けた時点で `pixel_format_to_guid` が `None` を返し `UnsupportedPixelFormat(Mjpeg)` で弾かれるため、本分岐に実際には到達しない。網羅性維持のための保険分岐。
+`process_sample` の match 分岐に到達する前に、`_buf_guard = BufGuard { buffer }` (486 行) で `buffer` は既に `BufGuard` に所有権が移動している。`unreachachable!()` マクロは最適化ビルドで undefined behavior に展開される可能性があるため、`unsafe { std::hint::unreachable_unchecked() }` は使用しない。`BufGuard` の `Drop` が自動で `Unlock` するため、リソース解放は保証される。
 
-### 9. `CHANGES.md`
+### 9. `examples/camera_preview.rs`
 
-`## develop` セクションへの挿入位置は規約 (UPDATE → ADD → CHANGE → FIX) に従い、**既存の `[ADD]` の直後** に追記:
+`enqueue_video_frame` の `match frame.pixel_format` に `PixelFormat::Mjpeg` 分岐を追加。cfg ガードは付けない:
+
+```rust
+PixelFormat::Mjpeg => {
+    static WARN: Once = Once::new();
+    WARN.call_once(|| {
+        eprintln!("camera_preview: MJPEG format is not supported in this sample");
+    });
+    return Ok(());
+}
+```
+
+`Err(...)` ではなく `eprintln!` + `Ok(())` とする。`raw_player::Error` が `From<String>` を実装しているとは限らないため、文字列エラーを返さない方針とする。
+
+### 10. `README.md`
+
+`## Linux の feature` セクションの末尾 (34 行目付近、「これらは両方のフラグを指定することも可能です。」の段落の直後) に以下を追記:
+
+```markdown
+### `mjpeg` feature
+
+Linux (V4L2) で MJPEG フォーマットのパススルーキャプチャを利用可能にする feature です。
+`pixel_format = Some(PixelFormat::Mjpeg)` を指定することで MJPEG カメラから JPEG ペイロードを直接受け取れます。V4L2 バックエンドが必要なため、`mjpeg` feature は自動的に `v4l2` を有効化します。
+
+MJPEG 対応外の環境 (macOS / Windows / PipeWire) で `PixelFormat::Mjpeg` を指定すると `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` を返します。
+
+```bash
+# MJPEG 対応を有効化してビルド
+cargo build -p shiguredo_video_device --features mjpeg
+```
+```
+
+### 11. `CHANGES.md`
+
+`## develop` セクション内、全 `[ADD]` エントリの末尾の直後・全 `[CHANGE]` エントリの先頭の直前に追記する（規約の種別順 UPDATE → ADD → CHANGE → FIX に従う）。`### misc` サブセクションより前に配置する。具体的には、現在の「`[CHANGE]` VideoDevice, VideoDeviceList, VideoCapture を構造体から enum に変更する」の 1 行前に以下のエントリを追加:（CHANGES.md の構成が変わった場合は、種別順を守るよう実装者判断で位置調整する）
 
 ```
-- [ADD] Linux (V4L2) で MJPEG パススルーに対応する mjpeg feature を追加する
+- [CHANGE] PixelFormat に Mjpeg バリアントを追加し、Linux (V4L2) で mjpeg feature による MJPEG パススルーキャプチャに対応する
   - @voluntas
 ```
 
-### 10. テスト
+### 12. テスト
 
-すべての MJPEG テストは `#[cfg(feature = "mjpeg")]` ガード付きで追加する。
+#### 12a. PBT (`pbt/tests/prop_types.rs`)
 
-`tests/test_types.rs` への単体テスト追加 (計 5 件、いずれも `#[cfg(feature = "mjpeg")]` ガード)。既存テストには `name()` / `Display` の直接テストが存在しないため、これらは新規パターンとなる:
+`pbt/tests/prop_types.rs` を新規作成する。PBT では `pub` な API のみ検証可能であるため、`to_raw` / `name` / `Display` のプロパティと `VideoFrame::to_owned` / `VideoFrameOwned::as_frame` のラウンドトリップを検証する:
 
-1. `PixelFormat::from_raw(0x47504A4D)` が `PixelFormat::Mjpeg` を返す
-2. `PixelFormat::Mjpeg.to_raw()` が `0x47504A4D` を返す
-3. `PixelFormat::Mjpeg.name()` が `"MJPEG"` を返す
-4. `PixelFormat::Mjpeg` の `Display` 出力が `"MJPEG"` を返す
-5. `VideoFrame::to_owned` および `VideoFrameOwned::as_frame` のラウンドトリップ MJPEG ケース。`data` には JPEG マジック (`0xFF, 0xD8, ...`) を含むダミーバイト列を入れる (人間可読のダミーデータの意図に過ぎず、`data[0..2] == [0xFF, 0xD8]` をアサート対象としない)。`stride: 0`, `stride_uv: 0`, `uv_data: None` を確認
+- `to_raw()` の戻り値が `name()` と矛盾しない (Nv12/Yuy2/I420/Mjpeg の FourCC が期待値と一致)
+- `name()` が空文字列を返さない
+- `Display` 出力が `name()` を含む
+- `VideoFrame::to_owned` / `VideoFrameOwned::as_frame` のラウンドトリップ: MJPEG を含む全フォーマット
 
-`src/frame_math.rs::#[cfg(test)] mod tests` (74-162 行) へのヘルパ単体テスト追加 (計 2 件、いずれも `#[cfg(enable_mjpeg)]` ガード)。`mjpeg_payload_bytes` は `#[cfg(enable_mjpeg)]` ガードで定義されるため、テストも同じ cfg ガードを使用する。既存命名規約 (`nv12_rejects_non_positive_dimensions` / `nv12_small_known_sizes` 風) に揃える:
+`from_raw` は `pub(crate)` のため PBT からアクセス不可。`from_raw` の検証は 12b の内部単体テストのみで行う。
+
+`prop_types.rs` で `PixelFormat` に `Arbitrary` を実装する。strategy には `prop_oneof!` で `Just(PixelFormat::Nv12)` / `Just(PixelFormat::Yuy2)` / `Just(PixelFormat::I420)` / `Just(PixelFormat::Mjpeg)` から一様選択する。`PixelFormat::Unknown(u32)` は内部利用のみのため strategy から除外する。`VideoFrame` のラウンドトリップは `VideoFrameOwned` 経由で strategy を構築し、`to_owned` → `as_frame` でラウンドトリップ検証する。MJPEG variant では `stride: 0`, `stride_uv: 0`, `uv_data: None` を strategy が強制することで、誤った値でのラウンドトリップ偽陽性を防止する。
+
+プロジェクト初の PBT 導入となる。`Cargo.toml` への `proptest` dev-dependency 追加と `[[test]]` セクション追加が必要。`pbt/tests/` ディレクトリは新規作成する。
+
+#### 12b. 単体テスト (`src/types.rs::#[cfg(test)] mod tests` を新規作成)
+
+`src/types.rs` には現在 `#[cfg(test)] mod tests` が存在しないため、新規作成する。`from_raw` は `pub(crate)` かつ `#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]` ガード付きのため、結合テストからは呼べず内部テストが必要:
+
+1. `PixelFormat::from_raw(0x47504A4D)` が `PixelFormat::Mjpeg` を返す。このテスト関数には `#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]` を付ける（`from_raw` と同じ cfg 条件でコンパイルする必要がある）
+2. `from_raw` → `to_raw` の MJPEG ラウンドトリップ (`PixelFormat::from_raw(0x47504A4D).to_raw() == 0x47504A4D`)。同様に `#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]` ガードを付ける。PBT は `from_raw` (`pub(crate)`) にアクセスできないため、このラウンドトリップは単体テストでのみ検証可能
+
+`to_raw` / `name` / `Display` の MJPEG ケース検証は PBT (12a) でカバーされるため、単体テストでは重複検証しない（AGENTS.md「PBT でカバーできるものを単体テストで書かない」に従う）。`VideoFrame::to_owned` / `VideoFrameOwned::as_frame` の MJPEG ラウンドトリップも PBT (12a) でカバーされるため、`tests/test_types.rs` に MJPEG 固有の追加テストは不要とする。
+
+#### 12c. 単体テスト (`src/frame_math.rs::#[cfg(test)] mod tests` に追加)
+
+`src/frame_math.rs::#[cfg(test)] mod tests` (74-162 行) へのヘルパ単体テスト追加 (計 2 件、いずれも `#[cfg(enable_mjpeg)]` ガード)。既存命名規約に揃える:
 
 1. `mjpeg_rejects_non_positive_payload_size`: `mjpeg_payload_bytes(0)` / 負値が `None`
 2. `mjpeg_payload_bytes_returns_input`: `mjpeg_payload_bytes(1024)` が `Some(1024)`
 
-**注意**: `test_capture.rs:70` の `assert!(frame.stride > 0)` は `mjpeg` feature 有効・`PixelFormat::Mjpeg` 指定時のテスト実行では `stride` が 0 のため失敗する。本テストは実機依存かつ MJPEG カメラがなければ実行されないが、当該アサーションを `if frame.pixel_format != PixelFormat::Mjpeg { assert!(frame.stride > 0); }` のように条件付きに変更することを推奨する。
+#### 12d. Fuzzing 計画
+
+本 issue の新規コードパスのうち、以下の純粋関数は実機依存せずに fuzzing 可能なため、最低限の fuzzing を実施する:
+
+- `frame_math::mjpeg_payload_bytes` への任意 `i32` 入力（負値、0、正値、`i32::MAX`、`i32::MIN` でパニックしないことの検証）
+
+`fuzz/fuzz_targets/` ディレクトリ（既存なければ `cargo fuzz init` で新規作成）に `mjpeg_payload_bytes.rs` を追加する。プロジェクトに `cargo-fuzz` インフラが未導入の場合は、以下を実施する（CLAUDE.md の「Fuzzing は cargo-fuzz を使うこと」に従う）:
+
+```bash
+cargo fuzz init              # 初回のみ。fuzz/ ディレクトリと fuzz/Cargo.toml が生成される
+cargo fuzz add mjpeg_payload_bytes  # fuzz/fuzz_targets/mjpeg_payload_bytes.rs を生成
+```
+
+`frame_callback` の `slice::from_raw_parts(data, data_size)` 呼び出しは C 側の生ポインタを扱うため、安全な fuzz harness の設計が困難。本 issue では `mjpeg_payload_bytes` の純粋関数 fuzzing のみとし、unsafe 境界の fuzz は別途実施する。実機 MJPEG カメラの fuzzing も本 issue のスコープ外とする。
+
+#### 12e. `tests/test_capture.rs` 修正
+
+（旧 12e から番号変更）`tests/test_capture.rs:70` の `assert!(frame.stride > 0)` は、既定フォールバック (NV12 → YUYV) では MJPEG が選択されないため、`mjpeg` feature 有効化時も影響を受けない。修正不要。
+
+### 13. `src/video_avf.m` / `src/video_pipewire.c`
+
+修正不要。本 issue のスコープ外。非 V4L2 バックエンドでの MJPEG 挙動はスコープセクションに明記済み。
 
 ## 完了条件 (ファイル単位)
 
-- [ ] `Cargo.toml`: `mjpeg = ["v4l2"]` feature 追加。`default` や `default-*` 変更なし
-- [ ] `build.rs`: 全プラットフォーム共通の位置で `CARGO_FEATURE_MJPEG` 検出時に `println!("cargo::rustc-cfg=enable_mjpeg")` を発行、check-cfg に `enable_mjpeg` を追記。`build_linux_v4l2` で `CARGO_FEATURE_MJPEG` 検出時に `cc::Build::define("SHIGUREDO_VIDEO_DEVICE_MJPEG", None)` を呼ぶ（Linux のみ）
+- [ ] `Cargo.toml`: `mjpeg = ["v4l2"]` feature 追加、`[dev-dependencies]` に `proptest` 追加、`[[test]]` セクションで `pbt/tests/prop_types.rs` を登録。`default` や `default-*` 変更なし
+- [ ] `build.rs`: `check-cfg` 群に `enable_mjpeg` を追記。Linux `"linux"` アーム内の V4L2 cfg 発行直後で `CARGO_FEATURE_MJPEG` 検出時に `println!("cargo::rustc-cfg=enable_mjpeg")` を発行。`build_linux_v4l2` で `CARGO_FEATURE_MJPEG` 検出時に `cc::Build::define("SHIGUREDO_VIDEO_DEVICE_MJPEG", "1")` を呼ぶ
 - [ ] `src/video.h`: `VIDEO_PIXEL_FORMAT_MJPG` 定数 (feature ガードなし)、`FrameCallback` の MJPEG 仕様 (stride 単位が pixel_format に依存する旨を含む明示的契約) コメントを追加
 - [ ] `src/video_v4l2.c`: ファイル先頭に `#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG` ガード付きで `MJPEG_MAX_PAYLOAD_BYTES` (256 MiB、根拠コメント付き) を定義。`convert_v4l2_pixel_format` / `convert_video_pixel_format_to_v4l2` / `capture_thread` の MJPEG 関連コードを `#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG` で囲む。`capture_thread` の MJPEG 分岐は YUYV の `else if` の後ろに配置し、絶対上限ガードを含む
-- [ ] `src/types.rs`: `#[cfg(feature = "mjpeg")]` ガード付きで `VIDEO_PIXEL_FORMAT_MJPG` 定数 (OS 条件なし)、`PixelFormat::Mjpeg` バリアント、`from_raw` / `to_raw` / `name` の match 分岐、Windows `pixel_format_to_guid` の `Mjpeg => None` を追加。`VideoFrame` / `VideoFrameOwned` / `VideoCaptureConfig` の rustdoc に MJPEG 時の解釈、`V4L2_BUF_FLAG_ERROR` 警告、macOS / Windows でのエラー型統一を明記
+- [ ] `src/types.rs`: `VIDEO_PIXEL_FORMAT_MJPG` 定数 (cfg ガードなし・OS 条件なし)、`PixelFormat::Mjpeg` バリアント (cfg ガードなし)、`from_raw` / `to_raw` / `name` / `Display` / `pixel_format_to_guid` の match 分岐 (すべて cfg ガードなし) を追加。`PixelFormat` enum の doc comment (`to_raw` は全プラットフォーム利用可能、`from_raw` は FFI バックエンド有効時のみ) を修正。`VideoFrame` / `VideoFrameOwned` の `stride` / `stride_uv` フィールド doc と `VideoCaptureConfig` の rustdoc に MJPEG 時の解釈、`V4L2_BUF_FLAG_ERROR` 警告、非対応環境でのエラー型統一を明記
 - [ ] `src/lib.rs`: クレートドキュメントに `mjpeg` feature 有効化時の MJPEG 既知扱いと `closed/0017` 方針維持を独立 2 文で追記
 - [ ] `src/frame_math.rs`: `#[cfg(enable_mjpeg)]` ガード付きで `mjpeg_payload_bytes` ヘルパ (引数名 `payload_size: i32`、用途コメント付き) を追加。`#[cfg(test)] mod tests` に単体テスト 2 件を追加
-- [ ] `src/capture_ffi.rs`: `#[cfg(all(enable_mjpeg, enable_avf))]` ガード付きで macOS 用早期エラー分岐 (`FfiCaptureImpl::new` 内) を追加、`frame_callback` の `match pf` に `#[cfg(enable_mjpeg)]` 分岐を追加
-- [ ] `src/capture_mf.rs`: `process_sample` の `match` に `#[cfg(enable_mjpeg)] PixelFormat::Mjpeg => { let _ = buffer.Unlock(); return; }` を追加
-- [ ] `tests/test_types.rs`: `#[cfg(feature = "mjpeg")]` ガード付き MJPEG 関連テスト 5 件を追加 (`from_raw` / `to_raw` / `name` / `Display` / VideoFrame ラウンドトリップ)
-- [ ] `CHANGES.md`: `## develop` の既存 `[ADD]` の直後に新規 `[ADD]` で MJPEG feature 追加エントリを挿入
-- [ ] ローカル (Linux 環境) で以下の組み合わせで `cargo build` / `cargo clippy` / `cargo test` がすべて通る。`tests/test_capture.rs` は `#[ignore]` 付きで通常実行されないため、対象は `tests/test_types.rs` の MJPEG 関連 5 件と `src/frame_math.rs` 内 `mod tests` の MJPEG 関連 2 件:
+- [ ] `src/capture_ffi.rs`: `FfiCaptureImpl::new` 内に `#[cfg(not(enable_mjpeg))]` ガード付きで MJPEG 要求時実行時エラーを追加。`FfiCaptureImpl::new_pipewire` の先頭に MJPEG 拒否を追加。`frame_callback` の `match pf` に cfg ガードなしの `PixelFormat::Mjpeg` 分岐を追加 (内部を cfg で分岐)
+- [ ] `src/capture_mf.rs`: `process_sample` の `match` に cfg ガードなしの `PixelFormat::Mjpeg => return,` を追加 (BufGuard が Drop で Unlock するため明示的 Unlock 不要)
+- [ ] `examples/camera_preview.rs`: `enqueue_video_frame` の `match` に `PixelFormat::Mjpeg` 分岐を追加 (ログは英語、`Once` で 1 回のみ出力、`return Ok(())`)
+- [ ] `tests/test_types.rs`: 修正不要。`to_owned` / `as_frame` の MJPEG ラウンドトリップは PBT (12a) で検証されるため追加テスト不要
+- [ ] `src/types.rs` 内に `#[cfg(test)] mod tests` を新規作成し、`from_raw` のテスト 2 件を追加
+- [ ] `pbt/tests/prop_types.rs` (新規作成。`pbt/tests/` ディレクトリも新規作成): `PixelFormat` ラウンドトリップ PBT に `Mjpeg` バリアントを追加。`VideoFrame::to_owned` / `VideoFrameOwned::as_frame` のラウンドトリップ PBT を追加
+- [ ] `fuzz/fuzz_targets/mjpeg_payload_bytes.rs` (新規作成。`cargo fuzz init` による `fuzz/` ディレクトリ生成に続き `cargo fuzz add mjpeg_payload_bytes` で生成): `mjpeg_payload_bytes` への任意 `i32` 入力に対するパニック安全性を検証
+- [ ] `README.md`: `## Linux の feature` セクションに `mjpeg` feature の説明を追記
+- [ ] `CHANGES.md`: `## develop` セクションの全 `[ADD]` エントリ末尾直後・全 `[CHANGE]` エントリ先頭直前に新規 `[CHANGE]` で MJPEG feature 追加エントリを挿入（種別順 UPDATE → ADD → CHANGE → FIX に従う）
+- [ ] ローカル (Linux 環境) で以下の組み合わせで `cargo build` / `cargo clippy --all-targets` / `cargo test` がすべて通る。`cargo clippy` は **MJPEG 対応に起因する新規 warning が 0 件であること** を確認条件とする（既存 warning は対象外）。対象は `src/types.rs` 内 `mod tests` の MJPEG 関連 2 件、`src/frame_math.rs` 内 `mod tests` の MJPEG 関連 2 件:
   - `cargo build` / `cargo test` (default features)
+  - `cargo build --no-default-features --features v4l2` / `cargo test --no-default-features --features v4l2`
   - `cargo build --features mjpeg` / `cargo test --features mjpeg`
-  - `cargo build --no-default-features --features v4l2,mjpeg`
+  - `cargo build --no-default-features --features v4l2,mjpeg` / `cargo test --no-default-features --features v4l2,mjpeg`
 - [ ] Linux / macOS / Windows の全プラットフォームビルドを CI で確認する (ローカルでの Windows / macOS 検証は不要)
 
 ## 影響範囲
 
-- **`mjpeg` feature 無効時 (既定)**: `build.rs` が `SHIGUREDO_VIDEO_DEVICE_MJPEG` を define しないため C 側で MJPEG case が含まれず、Rust 側でも `PixelFormat::Mjpeg` バリアントが存在しない。公開 API および挙動は完全に変化なし。`from_raw(0x47504A4D)` は引き続き `Unknown(0x47504A4D)` を返し、MJPEG カメラは引き続き `formats()` で空 (現状と同一)
+- **`mjpeg` feature 無効時 (既定)**: `build.rs` が `SHIGUREDO_VIDEO_DEVICE_MJPEG` を define しないため C 側で MJPEG case が含まれず、Rust 側のキャプチャ初期化では実行時エラーを返す。`PixelFormat::Mjpeg` は常に定義されるため match 網羅性は全プラットフォームで保たれる。`from_raw(0x47504A4D)` は `PixelFormat::Mjpeg` を返すが、利用者が明示的に `Some(PixelFormat::Mjpeg)` を指定しない限り影響はない。MJPEG カメラの `formats()` 結果は引き続き空 (C 側でフィルタされるため)
 - **`mjpeg` feature 有効時 (Linux)**: MJPEG カメラを `VideoDevice::formats()` で列挙でき、`Some(PixelFormat::Mjpeg)` でキャプチャ可能。`VideoFrame::data` に JPEG ペイロード、`stride / stride_uv` は 0、`uv_data` は None
-- **`mjpeg` feature 有効時 (macOS)**: `Some(PixelFormat::Mjpeg)` 指定時のみ `Error::UnsupportedPixelFormat(Mjpeg)` を返す (早期エラー分岐)。`formats()` には MJPEG は出現しない (`video_avf.m::convert_pixel_format` が MJPEG を `default: 0` で除外)
-- **`mjpeg` feature 有効時 (Windows)**: `Some(PixelFormat::Mjpeg)` 指定時は `Error::UnsupportedPixelFormat(Mjpeg)` を返す (`pixel_format_to_guid` が `None`)。`formats()` には MJPEG は出現しない (`guid_to_pixel_format` を変更しないため、Windows MF MJPEG 列挙は Linux と挙動が異なるが、これは Windows MJPEG 対応 (列挙とキャプチャをセットで) を別 issue で扱うため許容)
+- **`mjpeg` feature 有効時 (macOS)**: `Some(PixelFormat::Mjpeg)` 指定時は `Error::UnsupportedPixelFormat(Mjpeg)` を返す (`FfiCaptureImpl::new` の `#[cfg(not(enable_mjpeg))]` ガード)。`formats()` には MJPEG は出現しない (`video_avf.m::convert_pixel_format` が MJPEG を `default: 0` で除外)
+- **`mjpeg` feature 有効時 (Windows)**: `mjpeg = ["v4l2"]` により `CARGO_FEATURE_MJPEG` は cargo によりセットされるが、build.rs の cfg 発行 (`enable_mjpeg`) は Linux アーム内のみのため Windows では発行されない。`Some(PixelFormat::Mjpeg)` 指定時は `capture_ffi.rs` がコンパイルされない (Windows では `enable_v4l2`/`enable_avf`/`enable_pipewire` のいずれも発行されないため) ため、`FfiCaptureImpl` のチェックは存在せず、MF 側の `pixel_format_to_guid(Mjpeg) = None` → `UnsupportedPixelFormat(Mjpeg)` の経路で拒否される。`formats()` には MJPEG は出現しない (`guid_to_pixel_format` を変更しないため)
 - **C ABI**: シグネチャは変更なし。`FrameCallback` の `stride` 引数の意味が `pixel_format` に依存する契約を明示文書化する
-- **既定フォールバック**: 変更なし
-- **PipeWire バックエンド**: 変更なし
