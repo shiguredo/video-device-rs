@@ -183,6 +183,9 @@ mod tests {
     #[cfg(enable_mjpeg)]
     fn mjpeg_payload_bytes_returns_input() {
         assert_eq!(super::mjpeg_payload_bytes(1024), Some(1024));
-        assert_eq!(super::mjpeg_payload_bytes(i32::MAX), Some(i32::MAX as usize));
+        assert_eq!(
+            super::mjpeg_payload_bytes(i32::MAX),
+            Some(i32::MAX as usize)
+        );
     }
 }

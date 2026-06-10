@@ -345,7 +345,9 @@ extern "C" fn frame_callback(
         PixelFormat::Mjpeg => {
             #[cfg(enable_mjpeg)]
             {
-                let Some(data_size) = frame_math::mjpeg_payload_bytes(stride) else { return };
+                let Some(data_size) = frame_math::mjpeg_payload_bytes(stride) else {
+                    return;
+                };
                 let data_slice = unsafe { std::slice::from_raw_parts(data, data_size) };
                 VideoFrame {
                     data: data_slice,
