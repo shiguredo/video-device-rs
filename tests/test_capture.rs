@@ -16,6 +16,7 @@ use shiguredo_video_device::{
 #[ignore]
 fn test_enumerate_devices() {
     let device_list = VideoDeviceList::enumerate().expect("device enumeration failed");
+
     assert!(!device_list.is_empty(), "no video device found");
 
     for device in &device_list {
@@ -35,8 +36,9 @@ fn test_capture_frames() {
 
     // デバイスを列挙して先頭デバイスの ID を取得する
     let device_list = VideoDeviceList::enumerate().expect("device enumeration failed");
+
     assert!(!device_list.is_empty(), "no video device found");
-    let device_id = device_list.devices()[0]
+    let device_id = device_list.as_slice()[0]
         .unique_id()
         .expect("failed to get device unique_id");
 
@@ -49,14 +51,7 @@ fn test_capture_frames() {
     };
 
     let mut capture = VideoCapture::new(config, move |frame: VideoFrame<'_>| {
-        static DROP_LOG: Once = Once::new();
-        if tx.try_send(frame.to_owned()).is_err() {
-            DROP_LOG.call_once(|| {
-                eprintln!(
-                    "test_capture_frames: dropped frame (channel full or receiver disconnected)"
-                );
-            });
-        }
+        send_frame(&tx, frame);
     })
     .expect("VideoCapture creation failed");
 
@@ -76,4 +71,13 @@ fn test_capture_frames() {
     }
 
     capture.stop();
+}
+
+fn send_frame(tx: &std::sync::mpsc::SyncSender<VideoFrameOwned>, frame: VideoFrame<'_>) {
+    static DROP_LOG: Once = Once::new();
+    if tx.try_send(frame.to_owned()).is_err() {
+        DROP_LOG.call_once(|| {
+            eprintln!("test_capture_frames: dropped frame (channel full or receiver disconnected)");
+        });
+    }
 }

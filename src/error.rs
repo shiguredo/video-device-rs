@@ -12,6 +12,8 @@ pub enum Error {
     InvalidCaptureConfig(&'static str),
     /// COM 初期化に失敗
     ComInitFailed,
+    /// C 側が返した文字列が有効な UTF-8 でない
+    InvalidUtf8(&'static str),
 }
 
 impl std::fmt::Display for Error {
@@ -27,6 +29,7 @@ impl std::fmt::Display for Error {
             Error::NullPointer(name) => write!(f, "null pointer: {}", name),
             Error::InvalidCaptureConfig(msg) => write!(f, "invalid capture config: {}", msg),
             Error::ComInitFailed => write!(f, "COM initialization failed"),
+            Error::InvalidUtf8(field) => write!(f, "invalid UTF-8 in {}", field),
         }
     }
 }

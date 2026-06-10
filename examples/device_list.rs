@@ -1,7 +1,9 @@
 use shiguredo_video_device::VideoDeviceList;
 
 fn main() {
-    let device_list = match VideoDeviceList::enumerate() {
+    let device_list = VideoDeviceList::enumerate();
+
+    let device_list = match device_list {
         Ok(list) => list,
         Err(e) => {
             eprintln!("デバイスの列挙に失敗しました: {e}");

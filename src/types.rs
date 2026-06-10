@@ -1,24 +1,21 @@
 use std::ffi::c_void;
 use std::fmt;
 
-#[cfg(target_os = "macos")]
+#[cfg(enable_avf)]
 unsafe extern "C" {
     fn CFRetain(cf: *const c_void) -> *const c_void;
     fn CFRelease(cf: *const c_void);
 }
 
-/// ピクセルフォーマット定数 (video_c.h と同じ値)
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+/// ピクセルフォーマット定数 (video.h と同じ FourCC 値)
 pub(crate) const VIDEO_PIXEL_FORMAT_NV12: u32 = 0x3231564E;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const VIDEO_PIXEL_FORMAT_YUY2: u32 = 0x32595559;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const VIDEO_PIXEL_FORMAT_I420: u32 = 0x30323449;
 
 /// ピクセルフォーマット
 ///
-/// **Windows** では `to_raw` / `from_raw` はビルド対象に含まれない（`cfg` により定義されない）。
 /// 列挙・キャプチャは Media Foundation の `GUID` と内部で対応付けている。
+/// `to_raw` / `from_raw` は FourCC 値との変換であり、全プラットフォームで利用可能。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PixelFormat {
     /// NV12 (YUV 4:2:0 semi-planar)
@@ -33,7 +30,7 @@ pub enum PixelFormat {
 
 impl PixelFormat {
     /// 生の値からピクセルフォーマットを生成
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     pub(crate) fn from_raw(raw: u32) -> Self {
         match raw {
             VIDEO_PIXEL_FORMAT_NV12 => PixelFormat::Nv12,
@@ -44,7 +41,6 @@ impl PixelFormat {
     }
 
     /// ピクセルフォーマットを生の値に変換
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn to_raw(&self) -> u32 {
         match self {
             PixelFormat::Nv12 => VIDEO_PIXEL_FORMAT_NV12,
@@ -89,16 +85,16 @@ impl PixelBuffer {
         self.ptr
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     pub(crate) unsafe fn from_retained_ptr(ptr: *mut c_void) -> Option<Self> {
         if ptr.is_null() {
             return None;
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(enable_avf)]
         {
             Some(Self { ptr })
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(enable_avf))]
         {
             // Linux では Drop で CFRelease しないため、非 NULL を保持するとリークしうる。契約上 NULL のみ。
             None
@@ -108,7 +104,7 @@ impl PixelBuffer {
 
 impl Clone for PixelBuffer {
     fn clone(&self) -> Self {
-        #[cfg(target_os = "macos")]
+        #[cfg(enable_avf)]
         unsafe {
             if !self.ptr.is_null() {
                 let _ = CFRetain(self.ptr.cast_const());
@@ -121,7 +117,7 @@ impl Clone for PixelBuffer {
 
 impl Drop for PixelBuffer {
     fn drop(&mut self) {
-        #[cfg(target_os = "macos")]
+        #[cfg(enable_avf)]
         unsafe {
             if !self.ptr.is_null() {
                 CFRelease(self.ptr.cast_const());
@@ -280,11 +276,15 @@ impl VideoFrameOwned {
     }
 }
 
-/// CoInitializeEx / CoUninitialize を対で呼び出す RAII ガード
-#[cfg(target_os = "windows")]
-pub(crate) struct CoInitGuard;
+/// CoInitializeEx / CoUninitialize を対で呼び出す RAII ガード。
+///
+/// `!Send` であるため、別スレッドへの移動はコンパイルエラーになる。
+#[cfg(enable_mf)]
+pub(crate) struct CoInitGuard {
+    _not_send: std::marker::PhantomData<*const ()>,
+}
 
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 impl CoInitGuard {
     #[allow(clippy::new_ret_no_self)]
     pub(crate) fn new() -> crate::Result<Self> {
@@ -297,11 +297,13 @@ impl CoInitGuard {
         if result.is_err() {
             return Err(crate::Error::ComInitFailed);
         }
-        Ok(Self)
+        Ok(Self {
+            _not_send: std::marker::PhantomData,
+        })
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 impl Drop for CoInitGuard {
     fn drop(&mut self) {
         unsafe {
@@ -310,14 +312,14 @@ impl Drop for CoInitGuard {
     }
 }
 
-/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
-#[cfg(target_os = "windows")]
+/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず drop した上で `CoTaskMemFree` する。
+#[cfg(enable_mf)]
 pub(crate) struct CoTaskMemActivateArrayGuard {
     pub(crate) ptr: *mut Option<windows::Win32::Media::MediaFoundation::IMFActivate>,
     pub(crate) count: u32,
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 impl Drop for CoTaskMemActivateArrayGuard {
     fn drop(&mut self) {
         if !self.ptr.is_null() {
@@ -332,7 +334,7 @@ impl Drop for CoTaskMemActivateArrayGuard {
 }
 
 /// Media Foundation GUID を PixelFormat に変換
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 pub(crate) fn guid_to_pixel_format(guid: &windows::core::GUID) -> Option<PixelFormat> {
     if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12 {
         Some(PixelFormat::Nv12)
@@ -346,7 +348,7 @@ pub(crate) fn guid_to_pixel_format(guid: &windows::core::GUID) -> Option<PixelFo
 }
 
 /// PixelFormat を Media Foundation GUID に変換
-#[cfg(target_os = "windows")]
+#[cfg(enable_mf)]
 pub(crate) fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<windows::core::GUID> {
     match pixel_format {
         PixelFormat::Nv12 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12),

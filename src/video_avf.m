@@ -4,7 +4,7 @@
 #import <CoreVideo/CoreVideo.h>
 #import <Foundation/Foundation.h>
 
-#include "video_c.h"
+#include "video_avf.h"
 
 // VideoDevice 構造体
 struct VideoDevice {
@@ -152,7 +152,7 @@ static BOOL output_supports_pixel_format(AVCaptureVideoDataOutput* output,
     return NO;
 }
 
-int video_enumerate_devices(struct VideoDevice*** devices, int* count) {
+int video_avf_enumerate_devices(struct VideoDevice*** devices, int* count) {
     if (!devices || !count) {
         return -1;
     }
@@ -273,7 +273,7 @@ int video_enumerate_devices(struct VideoDevice*** devices, int* count) {
     return 0;
 }
 
-void video_free_devices(struct VideoDevice** devices, int count) {
+void video_avf_free_devices(struct VideoDevice** devices, int count) {
     if (!devices) {
         return;
     }
@@ -289,35 +289,35 @@ void video_free_devices(struct VideoDevice** devices, int count) {
     free(devices);
 }
 
-const char* video_device_name(struct VideoDevice* device) {
+const char* video_avf_device_name(struct VideoDevice* device) {
     if (!device) {
         return NULL;
     }
     return device->name;
 }
 
-const char* video_device_unique_id(struct VideoDevice* device) {
+const char* video_avf_device_unique_id(struct VideoDevice* device) {
     if (!device) {
         return NULL;
     }
     return device->unique_id;
 }
 
-int video_device_format_count(struct VideoDevice* device) {
+int video_avf_device_format_count(struct VideoDevice* device) {
     if (!device) {
         return 0;
     }
     return device->format_count;
 }
 
-const struct VideoFormatEntry* video_device_get_format(struct VideoDevice* device, int index) {
+const struct VideoFormatEntry* video_avf_device_get_format(struct VideoDevice* device, int index) {
     if (!device || index < 0 || index >= device->format_count) {
         return NULL;
     }
     return &device->formats[index];
 }
 
-struct VideoSession* video_session_create(const char* device_id, int width,
+struct VideoSession* video_avf_session_create(const char* device_id, int width,
                                           int height, int fps,
                                           uint32_t requested_pixel_format) {
     // カメラアクセス権限を確認する。未認可の場合はフレームが配信されないため
@@ -479,7 +479,7 @@ struct VideoSession* video_session_create(const char* device_id, int width,
     return videoSession;
 }
 
-void video_session_destroy(struct VideoSession* session) {
+void video_avf_session_destroy(struct VideoSession* session) {
     if (!session) {
         return;
     }
@@ -502,7 +502,7 @@ void video_session_destroy(struct VideoSession* session) {
     free(session);
 }
 
-int video_session_start(struct VideoSession* session, FrameCallback callback, void* user_data) {
+int video_avf_session_start(struct VideoSession* session, FrameCallback callback, void* user_data) {
     if (!session || !callback) {
         return -1;
     }
@@ -520,7 +520,7 @@ int video_session_start(struct VideoSession* session, FrameCallback callback, vo
     return 0;
 }
 
-void video_session_stop(struct VideoSession* session) {
+void video_avf_session_stop(struct VideoSession* session) {
     if (!session) {
         return;
     }

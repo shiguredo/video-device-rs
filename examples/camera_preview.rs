@@ -189,32 +189,28 @@ fn strip_stride<'a>(
     Cow::Owned(result)
 }
 
-fn list_devices() {
+/// デバイス列挙結果を表示する共通処理
+fn print_device_list(list: &VideoDeviceList) {
     println!("=== 映像デバイス一覧 ===");
-    match VideoDeviceList::enumerate() {
-        Ok(devices) => {
-            if devices.is_empty() {
-                println!("  映像デバイスが見つかりません");
-            } else {
-                for device in devices.devices() {
-                    let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
-                    let id = device.unique_id().unwrap_or_else(|_| "Unknown".to_string());
-                    println!("  {name}");
-                    println!("    ID: {id}");
-                    for fmt in device.formats() {
-                        println!(
-                            "    {}x{} @ {:.0}-{:.0} fps ({})",
-                            fmt.width,
-                            fmt.height,
-                            fmt.min_fps,
-                            fmt.max_fps,
-                            fmt.pixel_format.name()
-                        );
-                    }
-                }
-            }
+    if list.is_empty() {
+        println!("  映像デバイスが見つかりません");
+        return;
+    }
+    for device in list {
+        let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
+        let id = device.unique_id().unwrap_or_else(|_| "Unknown".to_string());
+        println!("  {name}");
+        println!("    ID: {id}");
+        for fmt in device.formats() {
+            println!(
+                "    {}x{} @ {:.0}-{:.0} fps ({})",
+                fmt.width,
+                fmt.height,
+                fmt.min_fps,
+                fmt.max_fps,
+                fmt.pixel_format.name()
+            );
         }
-        Err(e) => eprintln!("  映像デバイスの列挙に失敗: {e:?}"),
     }
 }
 
@@ -292,7 +288,8 @@ fn main() {
     let args = parse_args();
 
     if args.list_devices {
-        list_devices();
+        let device_list = VideoDeviceList::enumerate();
+        print_device_list(&device_list.expect("デバイスの列挙に失敗しました"));
         return;
     }
 
@@ -308,7 +305,7 @@ fn main() {
         fps: args.fps,
         pixel_format: None,
     };
-    let mut video_capture = VideoCapture::new(video_config, move |frame: VideoFrame<'_>| {
+    let callback = move |frame: VideoFrame<'_>| {
         if tx.try_send(frame.to_owned()).is_err() {
             static DROP_LOG: Once = Once::new();
             DROP_LOG.call_once(|| {
@@ -317,8 +314,9 @@ fn main() {
                 );
             });
         }
-    })
-    .expect("VideoCapture の作成に失敗しました");
+    };
+    let mut video_capture =
+        VideoCapture::new(video_config, callback).expect("VideoCapture の作成に失敗しました");
 
     // VideoPlayer を作成
     let title = format!(

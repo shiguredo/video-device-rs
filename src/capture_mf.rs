@@ -9,6 +9,7 @@ use std::time::Duration;
 use windows::{Win32::Media::MediaFoundation::*, core::GUID};
 
 use crate::error::{Error, Result};
+use crate::frame_math;
 use crate::types::{
     CoInitGuard, CoTaskMemActivateArrayGuard, PixelFormat, VideoCaptureConfig, VideoFrame,
     guid_to_pixel_format, pixel_format_to_guid,
@@ -23,27 +24,6 @@ impl<T> SendPtr<T> {
     }
 }
 
-/// `MFStartup` 成功後、`VideoCapture` 構築に失敗したときだけ `MFShutdown` する。
-struct MfShutdownGuard {
-    active: bool,
-}
-
-impl MfShutdownGuard {
-    fn new() -> Self {
-        Self { active: true }
-    }
-}
-
-impl Drop for MfShutdownGuard {
-    fn drop(&mut self) {
-        if self.active {
-            unsafe {
-                let _ = MFShutdown();
-            }
-        }
-    }
-}
-
 struct SessionData {
     source_reader: IMFSourceReader,
     media_source: IMFMediaSource,
@@ -52,16 +32,16 @@ struct SessionData {
     height: i32,
 }
 
-type VideoFrameCallback = dyn Fn(VideoFrame<'_>) + Send + 'static;
+type VideoFrameCallback = Box<dyn Fn(VideoFrame<'_>) + Send + 'static>;
 
 /// Windows 用ビデオキャプチャ (Media Foundation)。
 ///
-/// [`Self::stop`] をフレームコールバック内から呼ばないこと（キャプチャスレッドが自身を `join` しデッドロックしうる）。
-pub struct VideoCapture {
+/// [`MfCaptureImpl::stop`] をフレームコールバック内から呼ばないこと（キャプチャスレッドが自身を `join` しデッドロックしうる）。
+pub(crate) struct MfCaptureImpl {
     session: Option<SessionData>,
     running: Arc<AtomicBool>,
-    callback: Option<Box<VideoFrameCallback>>,
-    capture_thread: Option<thread::JoinHandle<()>>,
+    callback: Option<VideoFrameCallback>,
+    capture_thread: Option<thread::JoinHandle<VideoFrameCallback>>,
     config: VideoCaptureConfig,
     _com_guard: CoInitGuard,
 }
@@ -69,8 +49,6 @@ pub struct VideoCapture {
 fn validate_capture_config_for_windows(config: &VideoCaptureConfig) -> Result<()> {
     // Media Foundation へ幅・高さ・fps を渡すとき `as u64` で属性に詰めるため、0 以下や負の i32 は
     // 意図した解像度・フレームレートにならない。先に拒否する。
-    // Linux 向けの `VideoCapture` は `capture.rs` で別実装であり、不正値は C が既定に置き換えるので、
-    // 同じ拒否はこの Windows 専用の経路だけに置く。
     if config.width <= 0 || config.height <= 0 || config.fps <= 0 {
         return Err(Error::InvalidCaptureConfig(
             "width, height, and fps must be positive integers on Windows",
@@ -79,62 +57,11 @@ fn validate_capture_config_for_windows(config: &VideoCaptureConfig) -> Result<()
     Ok(())
 }
 
-impl VideoCapture {
-    pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
-    where
-        F: Fn(VideoFrame<'_>) + Send + 'static,
-    {
-        validate_capture_config_for_windows(&config)?;
-
-        unsafe {
-            let com_guard = CoInitGuard::new()?;
-
-            // Media Foundation 初期化
-            MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::SessionCreateFailed)?;
-            let mut mf_guard = MfShutdownGuard::new();
-
-            // デバイスを取得
-            let media_source = activate_device(config.device_id.as_deref())?;
-
-            // SourceReader を作成
-            let source_reader = create_source_reader(
-                &media_source,
-                config.width,
-                config.height,
-                config.fps,
-                config.pixel_format,
-            )?;
-
-            // 設定されたメディアタイプからフォーマット情報を取得
-            let (pixel_format, width, height) = get_configured_format(&source_reader)?;
-            if matches!(pixel_format, PixelFormat::Unknown(_)) {
-                return Err(Error::UnsupportedPixelFormat(pixel_format));
-            }
-
-            let running = Arc::new(AtomicBool::new(false));
-            let callback = Box::new(callback);
-
-            let session = SessionData {
-                source_reader,
-                media_source,
-                pixel_format,
-                width,
-                height,
-            };
-
-            mf_guard.active = false;
-
-            Ok(Self {
-                session: Some(session),
-                running,
-                callback: Some(callback),
-                capture_thread: None,
-                config,
-                _com_guard: com_guard,
-            })
-        }
-    }
-
+impl MfCaptureImpl {
+    /// キャプチャを開始する。
+    ///
+    /// 冪等: 既に running 状態であれば `Ok(())` を返す。
+    /// `stop` 後の再 `start` は許容する。
     pub fn start(&mut self) -> Result<()> {
         let session = self.session.as_ref().ok_or(Error::SessionStartFailed)?;
         let callback = self.callback.take();
@@ -153,7 +80,8 @@ impl VideoCapture {
         let running_clone = Arc::clone(&self.running);
 
         // キャプチャスレッドを開始
-        let handle = thread::spawn(move || {
+        // 戻り値型を VideoFrameCallback にすることで、stop() 時にコールバックを回収できる
+        let handle = thread::spawn(move || -> VideoFrameCallback {
             capture_thread_func(
                 source_reader.into_inner(),
                 pixel_format,
@@ -161,7 +89,7 @@ impl VideoCapture {
                 height,
                 running_clone,
                 callback.unwrap(),
-            );
+            )
         });
 
         self.capture_thread = Some(handle);
@@ -169,23 +97,91 @@ impl VideoCapture {
         Ok(())
     }
 
+    /// キャプチャを停止する。
+    ///
+    /// ブロッキング: キャプチャスレッド/コールバックの完了を待機してから復帰する。
+    /// running でない状態の場合は no-op。
     pub fn stop(&mut self) {
         if self.running.load(Ordering::Acquire) {
             self.running.store(false, Ordering::Release);
 
-            // スレッドの終了を待機
-            if let Some(handle) = self.capture_thread.take() {
-                let _ = handle.join();
+            // スレッドの終了を待機し、コールバックを回収する
+            if let Some(handle) = self.capture_thread.take()
+                && let Ok(callback) = handle.join()
+            {
+                self.callback = Some(callback);
             }
         }
     }
 
+    /// キャプチャ設定を取得する。
     pub fn config(&self) -> &VideoCaptureConfig {
         &self.config
     }
 }
 
-impl Drop for VideoCapture {
+impl MfCaptureImpl {
+    pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+    where
+        F: Fn(VideoFrame<'_>) + Send + 'static,
+    {
+        validate_capture_config_for_windows(&config)?;
+
+        unsafe {
+            let com_guard = CoInitGuard::new()?;
+
+            // Media Foundation 初期化（失敗時は即座にエラーを返す）
+            MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::SessionCreateFailed)?;
+            let result = {
+                // デバイスを取得
+                let media_source = activate_device(config.device_id.as_deref())?;
+
+                // SourceReader を作成
+                let source_reader = create_source_reader(
+                    &media_source,
+                    config.width,
+                    config.height,
+                    config.fps,
+                    config.pixel_format,
+                )?;
+
+                // 設定されたメディアタイプからフォーマット情報を取得
+                let (pixel_format, width, height) = get_configured_format(&source_reader)?;
+                if matches!(pixel_format, PixelFormat::Unknown(_)) {
+                    return Err(Error::UnsupportedPixelFormat(pixel_format));
+                }
+
+                let running = Arc::new(AtomicBool::new(false));
+
+                let session = SessionData {
+                    source_reader,
+                    media_source,
+                    pixel_format,
+                    width,
+                    height,
+                };
+
+                Ok(Self {
+                    session: Some(session),
+                    running,
+                    callback: Some(Box::new(callback)),
+                    capture_thread: None,
+                    config,
+                    _com_guard: com_guard,
+                })
+            };
+
+            // 構築途中で失敗した場合は MFStartup とつりあわせるために MFShutdown を呼ぶ
+            if result.is_err() {
+                let _ = MFShutdown();
+            }
+
+            result
+        }
+    }
+}
+
+impl Drop for MfCaptureImpl {
     fn drop(&mut self) {
         self.stop();
 
@@ -395,11 +391,11 @@ fn capture_thread_func(
     width: i32,
     height: i32,
     running: Arc<AtomicBool>,
-    callback: Box<VideoFrameCallback>,
-) {
+    callback: VideoFrameCallback,
+) -> VideoFrameCallback {
     let _com_guard = match CoInitGuard::new() {
         Ok(g) => g,
-        Err(_) => return,
+        Err(_) => return callback,
     };
 
     unsafe {
@@ -438,35 +434,21 @@ fn capture_thread_func(
             }
         }
     }
+
+    callback
 }
 
-/// NV12 連続バッファに必要な Y+UV バイト数。
-fn nv12_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
-    if width <= 0 || height <= 0 {
-        return None;
-    }
-    let y = (width as usize).checked_mul(height as usize)?;
-    let uv = (width as usize).checked_mul((height as usize).div_ceil(2))?;
-    y.checked_add(uv)
+/// Lock 済みの IMFMediaBuffer を保持し、Drop 時に Unlock する RAII ガード。
+struct BufGuard {
+    buffer: IMFMediaBuffer,
 }
 
-/// I420 連結 Y+U+V に必要なバイト数（Y + U + V の合計が Y+Y/2 になる標準レイアウト）。
-fn i420_packed_frame_bytes(width: i32, height: i32) -> Option<usize> {
-    if width <= 0 || height <= 0 {
-        return None;
+impl Drop for BufGuard {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.buffer.Unlock();
+        }
     }
-    let y = (width as usize).checked_mul(height as usize)?;
-    let uv = ((width as usize).div_ceil(2)).checked_mul((height as usize).div_ceil(2))?;
-    y.checked_add(uv.checked_mul(2)?)
-}
-
-/// YUY2 の 1 フレーム分のバイト数。
-fn yuy2_packed_frame_bytes_win(width: i32, height: i32) -> Option<usize> {
-    if width <= 0 || height <= 0 {
-        return None;
-    }
-    let stride = width.checked_mul(2)?;
-    (stride as usize).checked_mul(height as usize)
 }
 
 /// サンプルを処理
@@ -500,13 +482,14 @@ unsafe fn process_sample(
             return;
         }
 
+        // Lock 成功以降は BufGuard が自動で Unlock する
+        let _buf_guard = BufGuard { buffer };
+
         if data_ptr.is_null() {
-            let _ = buffer.Unlock();
             return;
         }
 
         if width <= 0 || height <= 0 {
-            let _ = buffer.Unlock();
             return;
         }
 
@@ -514,16 +497,13 @@ unsafe fn process_sample(
 
         let frame = match pixel_format {
             PixelFormat::Nv12 => {
-                let Some(required) = nv12_packed_frame_bytes(width, height) else {
-                    let _ = buffer.Unlock();
+                let Some(required) = frame_math::nv12_packed_frame_bytes(width, height) else {
                     return;
                 };
                 if data.len() < required {
-                    let _ = buffer.Unlock();
                     return;
                 }
                 let Some(y_size) = (width as usize).checked_mul(height as usize) else {
-                    let _ = buffer.Unlock();
                     return;
                 };
                 let y_data = &data[..y_size];
@@ -542,16 +522,13 @@ unsafe fn process_sample(
                 }
             }
             PixelFormat::I420 => {
-                let Some(required) = i420_packed_frame_bytes(width, height) else {
-                    let _ = buffer.Unlock();
+                let Some(required) = frame_math::i420_packed_frame_bytes(width, height) else {
                     return;
                 };
                 if data.len() < required {
-                    let _ = buffer.Unlock();
                     return;
                 }
                 let Some(y_size) = (width as usize).checked_mul(height as usize) else {
-                    let _ = buffer.Unlock();
                     return;
                 };
                 let y_data = &data[..y_size];
@@ -570,16 +547,13 @@ unsafe fn process_sample(
                 }
             }
             PixelFormat::Yuy2 => {
-                let Some(required) = yuy2_packed_frame_bytes_win(width, height) else {
-                    let _ = buffer.Unlock();
+                let Some(required) = frame_math::yuy2_packed_frame_bytes_win(width, height) else {
                     return;
                 };
                 if data.len() < required {
-                    let _ = buffer.Unlock();
                     return;
                 }
                 let Some(stride) = width.checked_mul(2) else {
-                    let _ = buffer.Unlock();
                     return;
                 };
                 VideoFrame {
@@ -594,17 +568,9 @@ unsafe fn process_sample(
                     pixel_buffer: None,
                 }
             }
-            PixelFormat::Unknown(_) => {
-                let _ = buffer.Unlock();
-                return;
-            }
+            PixelFormat::Unknown(_) => return,
         };
 
-        // ユーザコールバックが panic しても Unlock を確実に実行する
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            callback(frame);
-        }));
-
-        let _ = buffer.Unlock();
+        callback(frame);
     }
 }

@@ -13,6 +13,14 @@
 
 - [ADD] Windows で `CoInitializeEx` / `CoUninitialize` を対で呼び出す RAII ガード `CoInitGuard` を追加し、既存の呼び出しを置き換える
   - @melpon
+- [ADD] Linux で `v4l2` と `pipewire` の feature flag を同時に有効化可能にする
+  - @melpon
+- [ADD] 全プラットフォームでバックエンドを feature flag で制御可能にする
+  - macOS AVFoundation に `avf` feature、Windows Media Foundation に `mf` feature を追加
+  - `default-*` feature flag で `VideoDeviceList::enumerate()` および `VideoCapture::new()` によるデフォルトバックエンドを選択可能にする
+  - @melpon
+- [CHANGE] `VideoDevice`, `VideoDeviceList`, `VideoCapture` を構造体から enum に変更する
+  - @melpon
 - [FIX] `VideoCapture`, `PixelBuffer` はスレッドセーフな構造体ではないので Sync を削除する
   - @melpon
 - [FIX] V4L2 バックエンドで I420 フォーマットの場合にコールバックが発生しないのを修正する

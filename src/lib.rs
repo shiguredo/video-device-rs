@@ -5,40 +5,35 @@
 //!
 //! ## フレームコールバック
 //!
-//! [`VideoCapture::new`](VideoCapture::new) に渡すコールバックは、C から呼ばれる経路を跨ぐため**パニックしてはならない**。
-//! 渡される [`VideoFrame`] のスライスが指すメモリは、**そのコールバックの実行中にのみ**有効である。
-//! コールバック終了後にデータを保持したい場合は [`VideoFrame::to_owned`] で [`VideoFrameOwned`] にコピーする。
+//! [`VideoCapture::start`] を呼ぶときにスレッドが起動し、フレーム毎にコールバックが呼ばれます。
+//! 渡される [`VideoFrame`] のスライスが指すメモリは、**そのコールバックの実行中にのみ**有効です。
+//! コールバック終了後にデータを保持したい場合は [`VideoFrame::to_owned`] で [`VideoFrameOwned`] にコピーします。
 //!
-//! ネイティブが未知の FourCC を送った場合、実装によってはユーザーコールバックにフレームが渡らないことがある（プラットフォーム・デバイスにより異なる）。
+//! ネイティブが未知の FourCC を送った場合、実装によってはユーザーコールバックにフレームが渡らないことがあります（プラットフォーム・デバイスにより異なります）。
 //!
-//! **キャプチャコールバック内から** [`VideoCapture::stop`](VideoCapture::stop) を呼ばないこと。
-//! 特に Windows ではキャプチャスレッドが `join` 自身しデッドロックしうる。
+//! **キャプチャコールバック内から** `stop` を呼ばないでください。
+//! 特に Windows ではキャプチャスレッドが `join` 自身しデッドロックしうるためです。
 
+mod capture;
+mod device;
 mod error;
+mod frame_math;
 mod types;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-mod capture;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-mod device;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+mod capture_ffi;
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+mod device_ffi;
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 mod ffi;
 
-#[cfg(target_os = "windows")]
-mod capture_windows;
-#[cfg(target_os = "windows")]
-mod device_windows;
+#[cfg(enable_mf)]
+mod capture_mf;
+#[cfg(enable_mf)]
+mod device_mf;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use capture::VideoCapture;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub use device::{VideoDevice, VideoDeviceList};
-
-#[cfg(target_os = "windows")]
-pub use capture_windows::VideoCapture;
-#[cfg(target_os = "windows")]
-pub use device_windows::{VideoDevice, VideoDeviceList};
-
 pub use error::{Error, Result};
 pub use types::{
     PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFormat, VideoFrame, VideoFrameOwned,

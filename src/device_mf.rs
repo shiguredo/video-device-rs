@@ -7,69 +7,45 @@ use windows::{Win32::Media::MediaFoundation::*, core::GUID};
 use crate::error::{Error, Result};
 use crate::types::{CoInitGuard, CoTaskMemActivateArrayGuard, VideoFormat, guid_to_pixel_format};
 
-/// ビデオデバイス
-pub struct VideoDevice {
+/// ビデオデバイス (Windows Media Foundation)
+pub(crate) struct MfDeviceImpl {
     name: String,
     unique_id: String,
     formats: Vec<VideoFormat>,
 }
 
-impl VideoDevice {
-    /// デバイス名を取得
+impl MfDeviceImpl {
+    /// デバイス名を取得する。
     pub fn name(&self) -> Result<String> {
         Ok(self.name.clone())
     }
 
-    /// デバイスの一意識別子を取得
+    /// デバイスの一意識別子を取得する。
     pub fn unique_id(&self) -> Result<String> {
         Ok(self.unique_id.clone())
     }
 
-    /// 対応フォーマット数を取得
+    /// 対応フォーマット数を取得する。
     pub fn format_count(&self) -> usize {
         self.formats.len()
     }
 
-    /// 対応フォーマット一覧を取得
+    /// 対応フォーマット一覧を取得する。
     pub fn formats(&self) -> Vec<VideoFormat> {
         self.formats.clone()
     }
 }
 
-/// ビデオデバイスリスト
-pub struct VideoDeviceList {
-    devices: Vec<VideoDevice>,
+/// ビデオデバイスリスト (Windows Media Foundation)
+pub(crate) struct MfDeviceListImpl {
+    pub(crate) devices: Vec<MfDeviceImpl>,
 }
 
-impl VideoDeviceList {
+impl MfDeviceListImpl {
     /// デバイスを列挙
     pub fn enumerate() -> Result<Self> {
         let devices = enumerate_devices_internal()?;
         Ok(Self { devices })
-    }
-
-    /// デバイスのスライスを取得
-    pub fn devices(&self) -> &[VideoDevice] {
-        &self.devices
-    }
-
-    /// デバイス数を取得
-    pub fn len(&self) -> usize {
-        self.devices.len()
-    }
-
-    /// デバイスが空かどうか
-    pub fn is_empty(&self) -> bool {
-        self.devices.is_empty()
-    }
-}
-
-impl<'a> IntoIterator for &'a VideoDeviceList {
-    type Item = &'a VideoDevice;
-    type IntoIter = std::slice::Iter<'a, VideoDevice>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.devices.iter()
     }
 }
 
@@ -147,7 +123,7 @@ fn get_device_formats(activate: &IMFActivate) -> Vec<VideoFormat> {
 }
 
 /// デバイスを列挙
-fn enumerate_devices_internal() -> Result<Vec<VideoDevice>> {
+fn enumerate_devices_internal() -> Result<Vec<MfDeviceImpl>> {
     unsafe {
         let _com_guard = CoInitGuard::new()?;
 
@@ -164,7 +140,7 @@ fn enumerate_devices_internal() -> Result<Vec<VideoDevice>> {
 }
 
 /// デバイス列挙の内部実装
-unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
+unsafe fn enumerate_devices_impl() -> Result<Vec<MfDeviceImpl>> {
     unsafe {
         // デバイス列挙用の属性を作成
         let mut attributes: Option<IMFAttributes> = None;
@@ -210,7 +186,7 @@ unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
                 // フォーマット情報を取得
                 let formats = get_device_formats(activate);
 
-                devices.push(VideoDevice {
+                devices.push(MfDeviceImpl {
                     name,
                     unique_id,
                     formats,

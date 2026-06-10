@@ -28,7 +28,16 @@ macOS / Linux / Windows に対応したビデオデバイスライブラリで�
 
 ## Linux の feature
 
-Linux では `v4l2` (デフォルト) と `pipewire` の 2 つの feature を選択できます。両方を同時に指定することはできません。
+Linux では `v4l2` と `pipewire` の 2 つの feature を指定できます。
+`v4l2` を指定した場合はバックエンドとして V4L2 を利用可能になり、`pipewire` を指定した場合はバックエンドとして PipeWire が利用可能になります。
+これらは両方のフラグを指定することも可能です。
+
+更に `default-v4l2` と `default-pipewire` の feature も指定可能です。
+これはどのバックエンドを既定値にするかを指定する feature で、`VideoCapture::new()` や `VideoDeviceList::enumerate()` で利用するバックエンドが `default-*` で指定したものに切り替わります。
+`default-v4l2` と `default-pipewire` の両方の feature を指定した場合はコンパイルエラーになります。
+デフォルトでは `default-v4l2` feature を指定しています。
+
+`default-v4l2` が指定されている場合でも、`pipewire` が有効であれば `VideoCapture::new_pipewire()` や `VideoDeviceList::enumerate_pipewire()` を使うことで PipeWire のバックエンドを利用可能です。
 
 ## ビルド要件
 
@@ -59,7 +68,8 @@ sudo apt install libpipewire-0.3-dev
 cargo build -p shiguredo_video_device
 
 # Linux PipeWire バックエンド
-cargo build -p shiguredo_video_device --no-default-features --features pipewire
+#（デフォルトで default-v4l2 が指定されているので、デフォルトを PipeWire にするなら --no-default-features を指定する必要がある）
+cargo build -p shiguredo_video_device --no-default-features --features default-pipewire
 ```
 
 ## 使い方
@@ -71,7 +81,7 @@ use shiguredo_video_device::VideoDeviceList;
 
 // デバイス一覧を取得
 let device_list = VideoDeviceList::enumerate()?;
-for device in device_list.devices() {
+for device in device_list {
     println!("デバイス: {} (ID: {})", device.name()?, device.unique_id()?);
 
     // 対応フォーマット一覧
