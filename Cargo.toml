@@ -22,6 +22,8 @@ name = "camera_preview"
 nojson = "0.3"
 # camera_preview サンプルで生フレームを表示するためのプレビュー用クレート
 raw_player = "=2026.1.0"
+# PBT (Property-Based Testing) 用
+proptest = "1"
 
 [build-dependencies]
 # C/C++ ヘッダから Rust の FFI バインディングを自動生成する
@@ -51,4 +53,9 @@ v4l2 = []
 default-avf = ["avf"]
 default-mf = ["mf"]
 default-pipewire = ["pipewire"]
+mjpeg = ["v4l2"]
 default-v4l2 = ["v4l2"]
+
+[[test]]
+name = "prop_types"
+path = "pbt/tests/prop_types.rs"

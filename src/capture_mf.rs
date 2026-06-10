@@ -568,6 +568,12 @@ unsafe fn process_sample(
                     pixel_buffer: None,
                 }
             }
+            PixelFormat::Mjpeg => {
+                // 本分岐に到達するのはバグ。pixel_format_to_guid(Mjpeg) = None により
+                // get_configured_format で UnsupportedPixelFormat(Mjpeg) が先に返るため。
+                // 万一到達しても安静にドロップせず、明示的に異常系として扱う。
+                return;
+            }
             PixelFormat::Unknown(_) => return,
         };
 

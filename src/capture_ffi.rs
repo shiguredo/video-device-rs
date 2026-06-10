@@ -134,6 +134,10 @@ impl FfiCaptureImpl {
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
     {
+        // AVFoundation は MJPEG 非対応
+        if matches!(config.pixel_format, Some(PixelFormat::Mjpeg)) {
+            return Err(Error::UnsupportedPixelFormat(PixelFormat::Mjpeg));
+        }
         Self::new(&OPS_AVF, config, callback)
     }
 
@@ -143,6 +147,11 @@ impl FfiCaptureImpl {
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
     {
+        // MJPEG キャプチャは enable_mjpeg 環境 (Linux V4L2 + mjpeg feature) でのみ対応。
+        #[cfg(not(enable_mjpeg))]
+        if matches!(config.pixel_format, Some(PixelFormat::Mjpeg)) {
+            return Err(Error::UnsupportedPixelFormat(PixelFormat::Mjpeg));
+        }
         Self::new(&OPS_V4L2, config, callback)
     }
 
@@ -152,6 +161,10 @@ impl FfiCaptureImpl {
     where
         F: Fn(VideoFrame<'_>) + Send + 'static,
     {
+        // PipeWire は MJPEG 非対応
+        if matches!(config.pixel_format, Some(PixelFormat::Mjpeg)) {
+            return Err(Error::UnsupportedPixelFormat(PixelFormat::Mjpeg));
+        }
         Self::new(&OPS_PIPEWIRE, config, callback)
     }
 }
@@ -327,6 +340,29 @@ extern "C" fn frame_callback(
                 pixel_format: pf,
                 timestamp_us,
                 pixel_buffer,
+            }
+        }
+        PixelFormat::Mjpeg => {
+            #[cfg(enable_mjpeg)]
+            {
+                let Some(data_size) = frame_math::mjpeg_payload_bytes(stride) else { return };
+                let data_slice = unsafe { std::slice::from_raw_parts(data, data_size) };
+                VideoFrame {
+                    data: data_slice,
+                    uv_data: None,
+                    width,
+                    height,
+                    stride: 0,
+                    stride_uv: 0,
+                    pixel_format: pf,
+                    timestamp_us,
+                    pixel_buffer,
+                }
+            }
+            #[cfg(not(enable_mjpeg))]
+            {
+                // MJPEG 非対応環境では C 側で MJPEG がフィルタされるため到達しない
+                return;
             }
         }
         PixelFormat::Unknown(_) => return,

@@ -13,6 +13,8 @@ struct VideoSession;
 #define VIDEO_PIXEL_FORMAT_NV12 0x3231564E  // '420v' (NV12)
 #define VIDEO_PIXEL_FORMAT_YUY2 0x32595559  // 'yuvs' (YUY2)
 #define VIDEO_PIXEL_FORMAT_I420 0x30323449  // 'I420'
+// MJPEG は圧縮フォーマット。フレームは可変長の JPEG ペイロード。
+#define VIDEO_PIXEL_FORMAT_MJPG 0x47504A4D  // 'MJPG' (Motion JPEG, V4L2 互換)
 
 // フォーマットエントリ
 struct VideoFormatEntry {
@@ -24,10 +26,12 @@ struct VideoFormatEntry {
 };
 
 // フレームコールバック
-// pixel_format: VIDEO_PIXEL_FORMAT_NV12 / VIDEO_PIXEL_FORMAT_YUY2 / VIDEO_PIXEL_FORMAT_I420
+// pixel_format: VIDEO_PIXEL_FORMAT_NV12 / VIDEO_PIXEL_FORMAT_YUY2 / VIDEO_PIXEL_FORMAT_I420 / VIDEO_PIXEL_FORMAT_MJPG
 // NV12 の場合: data は Y プレーン、uv_data は UV インターリーブプレーン
 // YUY2 の場合: data はパックドデータ、uv_data は NULL
 // I420 の場合: data は Y プレーン、uv_data は U プレーン + V プレーンを連結したデータ
+// MJPEG の場合: data は JPEG ペイロード先頭、uv_data は NULL、stride 引数は JPEG ペイロード長 (バイト) (バイト/行ではない)、
+//   stride_uv は 0。pixel_format によって stride の単位が異なる契約であることに注意。
 // pixel_buffer: macOS の CVPixelBuffer (retained)。その他のプラットフォームでは必ず NULL（非 NULL は未サポート）
 //
 // コールバックはこの FFI 境界を跨いでアンワインド（パニック）してはならない。

@@ -11,11 +11,14 @@ unsafe extern "C" {
 pub(crate) const VIDEO_PIXEL_FORMAT_NV12: u32 = 0x3231564E;
 pub(crate) const VIDEO_PIXEL_FORMAT_YUY2: u32 = 0x32595559;
 pub(crate) const VIDEO_PIXEL_FORMAT_I420: u32 = 0x30323449;
+pub(crate) const VIDEO_PIXEL_FORMAT_MJPG: u32 = 0x47504A4D;
 
 /// ピクセルフォーマット
 ///
 /// 列挙・キャプチャは Media Foundation の `GUID` と内部で対応付けている。
-/// `to_raw` / `from_raw` は FourCC 値との変換であり、全プラットフォームで利用可能。
+/// `to_raw` は全プラットフォームで利用可能。
+/// `from_raw` は FFI バックエンド有効時 (AVF / V4L2 / PipeWire) に利用可能。
+/// それ以外 (Windows/mf) ではコンパイルエラーになる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PixelFormat {
     /// NV12 (YUV 4:2:0 semi-planar)
@@ -24,6 +27,14 @@ pub enum PixelFormat {
     Yuy2,
     /// I420 (YUV 4:2:0 planar)
     I420,
+    /// MJPEG (Motion JPEG)
+    ///
+    /// 圧縮された JPEG フレーム。デコードは利用者の責務。
+    /// V4L2 バックエンド + `mjpeg` feature 有効時のみキャプチャ可能。
+    /// それ以外の環境でキャプチャ要求すると `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` を返す。
+    /// `VideoFrame::data` は JPEG ペイロード、`uv_data` は `None`、
+    /// `stride` / `stride_uv` は **常に 0** (意味を持たない)。
+    Mjpeg,
     /// 不明なフォーマット
     Unknown(u32),
 }
@@ -36,6 +47,7 @@ impl PixelFormat {
             VIDEO_PIXEL_FORMAT_NV12 => PixelFormat::Nv12,
             VIDEO_PIXEL_FORMAT_YUY2 => PixelFormat::Yuy2,
             VIDEO_PIXEL_FORMAT_I420 => PixelFormat::I420,
+            VIDEO_PIXEL_FORMAT_MJPG => PixelFormat::Mjpeg,
             _ => PixelFormat::Unknown(raw),
         }
     }
@@ -46,6 +58,7 @@ impl PixelFormat {
             PixelFormat::Nv12 => VIDEO_PIXEL_FORMAT_NV12,
             PixelFormat::Yuy2 => VIDEO_PIXEL_FORMAT_YUY2,
             PixelFormat::I420 => VIDEO_PIXEL_FORMAT_I420,
+            PixelFormat::Mjpeg => VIDEO_PIXEL_FORMAT_MJPG,
             PixelFormat::Unknown(raw) => *raw,
         }
     }
@@ -56,6 +69,7 @@ impl PixelFormat {
             PixelFormat::Nv12 => "NV12",
             PixelFormat::Yuy2 => "YUY2",
             PixelFormat::I420 => "I420",
+            PixelFormat::Mjpeg => "MJPEG",
             PixelFormat::Unknown(_) => "Unknown",
         }
     }
@@ -177,6 +191,9 @@ pub struct VideoCaptureConfig {
     /// フレームレート
     pub fps: i32,
     /// 取得するピクセルフォーマット (None の場合はデフォルト選択)
+    ///
+    /// `Some(PixelFormat::Mjpeg)` を指定できるのは Linux V4L2 + `mjpeg` feature 有効時のみ。
+    /// それ以外の環境 (macOS / Windows / PipeWire) では `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` で失敗する。
     pub pixel_format: Option<PixelFormat>,
 }
 
@@ -198,16 +215,25 @@ impl Default for VideoCaptureConfig {
 #[derive(Debug)]
 pub struct VideoFrame<'a> {
     /// Y プレーンまたはインターリーブデータ
+    ///
+    /// **MJPEG の場合は圧縮された JPEG ペイロード**。長さは `data.len()` で取得すること。
+    /// スライス寿命は他フォーマットと同じくコールバック呼び出し中のみ。
     pub data: &'a [u8],
-    /// UV プレーン (NV12/I420 の場合のみ、YUY2 では None)
+    /// UV プレーン (NV12/I420 の場合のみ、YUY2 や MJPEG では None)
+    ///
+    /// **MJPEG では None**。
     pub uv_data: Option<&'a [u8]>,
     /// 幅 (ピクセル)
     pub width: i32,
     /// 高さ (ピクセル)
     pub height: i32,
     /// data のストライド (バイト/行)
+    ///
+    /// **MJPEG では 0**。
     pub stride: i32,
     /// uv_data のストライド (NV12/I420 の場合のみ)
+    ///
+    /// **MJPEG では 0**。
     pub stride_uv: i32,
     /// ピクセルフォーマット
     pub pixel_format: PixelFormat,
@@ -240,16 +266,24 @@ impl<'a> VideoFrame<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoFrameOwned {
     /// Y プレーンまたはインターリーブデータ
+    ///
+    /// **MJPEG の場合は圧縮された JPEG ペイロード**。長さは `data.len()` で取得すること。
     pub data: Vec<u8>,
-    /// UV プレーン (NV12/I420 の場合のみ、YUY2 では None)
+    /// UV プレーン (NV12/I420 の場合のみ、YUY2 や MJPEG では None)
+    ///
+    /// **MJPEG では None**。
     pub uv_data: Option<Vec<u8>>,
     /// 幅 (ピクセル)
     pub width: i32,
     /// 高さ (ピクセル)
     pub height: i32,
     /// data のストライド (バイト/行)
+    ///
+    /// **MJPEG では 0** (意味を持たない)。
     pub stride: i32,
     /// uv_data のストライド (NV12/I420 の場合のみ)
+    ///
+    /// **MJPEG では 0**。
     pub stride_uv: i32,
     /// ピクセルフォーマット
     pub pixel_format: PixelFormat,
@@ -354,6 +388,30 @@ pub(crate) fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<windows:
         PixelFormat::Nv12 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12),
         PixelFormat::Yuy2 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_YUY2),
         PixelFormat::I420 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_I420),
+        PixelFormat::Mjpeg => None,
         PixelFormat::Unknown(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+    fn from_raw_mjpeg_returns_mjpeg() {
+        assert_eq!(
+            PixelFormat::from_raw(VIDEO_PIXEL_FORMAT_MJPG),
+            PixelFormat::Mjpeg
+        );
+    }
+
+    #[test]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+    fn mjpeg_from_raw_to_raw_roundtrip() {
+        assert_eq!(
+            PixelFormat::from_raw(VIDEO_PIXEL_FORMAT_MJPG).to_raw(),
+            VIDEO_PIXEL_FORMAT_MJPG
+        );
     }
 }
