@@ -14,6 +14,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(enable_v4l2)");
     println!("cargo::rustc-check-cfg=cfg(enable_pipewire)");
     println!("cargo::rustc-check-cfg=cfg(enable_mf)");
+    println!("cargo::rustc-check-cfg=cfg(enable_mjpeg)");
     println!("cargo::rustc-check-cfg=cfg(enable_default_avf)");
     println!("cargo::rustc-check-cfg=cfg(enable_default_v4l2)");
     println!("cargo::rustc-check-cfg=cfg(enable_default_pipewire)");
@@ -33,6 +34,9 @@ fn main() {
         "linux" => {
             if env::var("CARGO_FEATURE_V4L2").is_ok() {
                 println!("cargo::rustc-cfg=enable_v4l2");
+            }
+            if env::var("CARGO_FEATURE_MJPEG").is_ok() {
+                println!("cargo::rustc-cfg=enable_mjpeg");
             }
             if env::var("CARGO_FEATURE_PIPEWIRE").is_ok() {
                 println!("cargo::rustc-cfg=enable_pipewire");
@@ -122,9 +126,12 @@ fn build_linux_v4l2(src_dir: &Path) {
     println!("cargo::rerun-if-changed=src/video_v4l2.h");
     println!("cargo::rerun-if-changed=src/video.h");
 
-    cc::Build::new()
-        .file(src_dir.join("video_v4l2.c"))
-        .compile("video_v4l2");
+    let mut build = cc::Build::new();
+    build.file(src_dir.join("video_v4l2.c"));
+    if std::env::var("CARGO_FEATURE_MJPEG").is_ok() {
+        build.define("SHIGUREDO_VIDEO_DEVICE_MJPEG", "1");
+    }
+    build.compile("video_v4l2");
 
     println!("cargo::rustc-link-lib=pthread");
 }

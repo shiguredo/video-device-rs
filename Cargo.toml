@@ -23,6 +23,9 @@ nojson = "0.3"
 # camera_preview サンプルで生フレームを表示するためのプレビュー用クレート
 raw_player = "=2026.1.0"
 
+[workspace]
+members = ["pbt"]
+
 [build-dependencies]
 # C/C++ ヘッダから Rust の FFI バインディングを自動生成する
 bindgen = "0.72"
@@ -51,4 +54,5 @@ v4l2 = []
 default-avf = ["avf"]
 default-mf = ["mf"]
 default-pipewire = ["pipewire"]
+mjpeg = ["v4l2"]
 default-v4l2 = ["v4l2"]

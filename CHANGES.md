@@ -19,6 +19,8 @@
   - macOS AVFoundation に `avf` feature、Windows Media Foundation に `mf` feature を追加
   - `default-*` feature flag で `VideoDeviceList::enumerate()` および `VideoCapture::new()` によるデフォルトバックエンドを選択可能にする
   - @melpon
+- [CHANGE] PixelFormat に Mjpeg バリアントを追加し、Linux (V4L2) で mjpeg feature による MJPEG パススルーキャプチャに対応する
+  - @voluntas
 - [CHANGE] `VideoDevice`, `VideoDeviceList`, `VideoCapture` を構造体から enum に変更する
   - @melpon
 - [FIX] `VideoCapture`, `PixelBuffer` はスレッドセーフな構造体ではないので Sync を削除する

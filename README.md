@@ -39,6 +39,18 @@ Linux では `v4l2` と `pipewire` の 2 つの feature を指定できます。
 
 `default-v4l2` が指定されている場合でも、`pipewire` が有効であれば `VideoCapture::new_pipewire()` や `VideoDeviceList::enumerate_pipewire()` を使うことで PipeWire のバックエンドを利用可能です。
 
+### `mjpeg` feature
+
+Linux (V4L2) で MJPEG フォーマットのパススルーキャプチャを利用可能にする feature です。
+`pixel_format = Some(PixelFormat::Mjpeg)` を指定することで MJPEG カメラから JPEG ペイロードを直接受け取れます。V4L2 バックエンドが必要なため、`mjpeg` feature は自動的に `v4l2` を有効化します。
+
+MJPEG 対応外の環境 (macOS / Windows / PipeWire) で `PixelFormat::Mjpeg` を指定すると `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` を返します。
+
+```bash
+# MJPEG 対応を有効化してビルド
+cargo build -p shiguredo_video_device --features mjpeg
+```
+
 ## ビルド要件
 
 ### macOS

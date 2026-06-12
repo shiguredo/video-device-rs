@@ -71,6 +71,17 @@ pub(crate) fn yuy2_packed_frame_bytes_win(width: i32, height: i32) -> Option<usi
     (stride as usize).checked_mul(height as usize)
 }
 
+/// C ABI の `stride` 引数 (i32) を JPEG ペイロード長スロットとして流用する経路。
+/// 呼び出し側は `mjpeg_payload_bytes(stride)` の形で呼ぶ。
+/// `payload_size <= 0` の場合は `None` を返す。
+#[cfg(enable_mjpeg)]
+pub(crate) fn mjpeg_payload_bytes(payload_size: i32) -> Option<usize> {
+    if payload_size <= 0 {
+        return None;
+    }
+    Some(payload_size as usize)
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(enable_mf)]
@@ -158,5 +169,23 @@ mod tests {
         // YUY2: 2 bytes per pixel, so stride = width * 2
         assert_eq!(yuy2_packed_frame_bytes_win(640, 480), Some(640 * 2 * 480));
         assert_eq!(yuy2_packed_frame_bytes_win(0, 480), None);
+    }
+
+    #[test]
+    #[cfg(enable_mjpeg)]
+    fn mjpeg_rejects_non_positive_payload_size() {
+        assert_eq!(super::mjpeg_payload_bytes(0), None);
+        assert_eq!(super::mjpeg_payload_bytes(-1), None);
+        assert_eq!(super::mjpeg_payload_bytes(i32::MIN), None);
+    }
+
+    #[test]
+    #[cfg(enable_mjpeg)]
+    fn mjpeg_payload_bytes_returns_input() {
+        assert_eq!(super::mjpeg_payload_bytes(1024), Some(1024));
+        assert_eq!(
+            super::mjpeg_payload_bytes(i32::MAX),
+            Some(i32::MAX as usize)
+        );
     }
 }

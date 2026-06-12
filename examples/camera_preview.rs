@@ -271,6 +271,13 @@ fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_play
             let data = strip_stride(frame.data, w * 2, h, stride);
             player.enqueue_video_yuy2(&data, frame.width, frame.height, pts_us)?;
         }
+        PixelFormat::Mjpeg => {
+            static WARN: Once = Once::new();
+            WARN.call_once(|| {
+                eprintln!("camera_preview: MJPEG format is not supported in this sample");
+            });
+            return Ok(());
+        }
         PixelFormat::Unknown(_) => {
             static WARN: Once = Once::new();
             WARN.call_once(|| {

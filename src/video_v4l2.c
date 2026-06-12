@@ -14,6 +14,19 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
+// MJPEG ペイロード長の絶対上限 (256 MiB)
+// 根拠: UVC 1.5 仕様のアイソクロナス転送最大ペイロードは High Speed (480 Mbps) で 3072 バイト/マイクロフレーム、
+// SuperSpeed (5 Gbps) で 1024 バイト/マイクロフレーム。
+// 実フレームサイズは 4K MJPEG で 5〜15 MiB、8K MJPEG で 20〜60 MiB、8K HDR で 90 MiB 超に達しうる。
+// V4L2 の bytesused は u32 で最大 4 GiB だが、256 MiB は以下の理由で選択:
+// 1. 将来の 8K や 16K 高フレームレートカメラを見越した十分な余裕値
+// 2. int (32-bit signed) でサイズを扱う既存コードパスとの互換性 (256 MiB < INT32_MAX)
+// 3. malloc/stack 割り当てにおける現実的な上限として過度に大きくない
+// 異常ドライバや V4L2_BUF_FLAG_ERROR 付き巨大値に対する防御線として機能する。
+static const size_t MJPEG_MAX_PAYLOAD_BYTES = 256u * 1024u * 1024u;
+#endif
+
 // VideoDevice 構造体
 struct VideoDevice {
     char* name;
@@ -59,6 +72,10 @@ static uint32_t convert_v4l2_pixel_format(uint32_t v4l2_format) {
             return VIDEO_PIXEL_FORMAT_YUY2;
         case V4L2_PIX_FMT_YUV420:
             return VIDEO_PIXEL_FORMAT_I420;
+#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
+        case V4L2_PIX_FMT_MJPEG:
+            return VIDEO_PIXEL_FORMAT_MJPG;
+#endif
         default:
             return 0;
     }
@@ -72,6 +89,10 @@ static uint32_t convert_video_pixel_format_to_v4l2(uint32_t pixel_format) {
             return V4L2_PIX_FMT_YUYV;
         case VIDEO_PIXEL_FORMAT_I420:
             return V4L2_PIX_FMT_YUV420;
+#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
+        case VIDEO_PIXEL_FORMAT_MJPG:
+            return V4L2_PIX_FMT_MJPEG;
+#endif
         default:
             return 0;
     }
@@ -609,6 +630,16 @@ static void* capture_thread(void* arg) {
                 session->callback(session->user_data, data, NULL, session->width, session->height,
                                   session->width * 2, 0, VIDEO_PIXEL_FORMAT_YUY2, timestamp_us,
                                   NULL);
+#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
+            } else if (session->pixel_format == V4L2_PIX_FMT_MJPEG) {
+                if (available > MJPEG_MAX_PAYLOAD_BYTES) {
+                    goto requeue;
+                }
+                session->callback(session->user_data, data, NULL,
+                                  session->width, session->height,
+                                  (int)available, 0,
+                                  VIDEO_PIXEL_FORMAT_MJPG, timestamp_us, NULL);
+#endif
             }
         }
 
