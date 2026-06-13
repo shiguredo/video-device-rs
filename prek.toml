@@ -1,9 +1,12 @@
-# Configuration file for `prek`, a git hook framework written in Rust.
-# See https://prek.j178.dev for more information.
+# prek の設定ファイル
+# prek は Rust で実装された Git フックフレームワーク
+# 詳細は https://prek.j178.dev を参照
 #:schema https://www.schemastore.org/prek.json
 
+# ビルド成果物を対象外にする
 exclude = { glob = ["target/**"] }
 
+# 組み込みフック
 [[repos]]
 repo = "builtin"
 hooks = [
@@ -13,6 +16,7 @@ hooks = [
   { id = "check-yaml" },
 ]
 
+# ローカルフック
 [[repos]]
 repo = "local"
 hooks = [
