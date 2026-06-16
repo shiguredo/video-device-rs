@@ -99,6 +99,7 @@ jobs:
               echo "Warning: $RUNTIME_DIR does not exist"
             fi
           fi
+          systemctl --user start pipewire
 
       # macOS ではカメラキャプチャテストをスキップする。
       # macOS の TCC (Transparency, Consent, and Control) はカメラアクセスに
@@ -115,7 +116,6 @@ jobs:
       - name: Run ignored tests for pipewire (device required)
         if: runner.os == 'Linux'
         run: |
-          systemctl --user start pipewire
           cargo test --workspace --no-default-features --features default-pipewire -- --ignored
       - name: Run device_list
         run: >
@@ -128,7 +128,6 @@ jobs:
       - name: Run device_list for pipewire
         if: runner.os == 'Linux'
         run: >
-          systemctl --user start pipewire
           cargo run --example device_list --no-default-features --features default-pipewire | jq -e
           '.device_count > 0
           and .device_count == (.devices | length)
@@ -149,7 +148,6 @@ jobs:
       - name: Run device_info for pipewire
         if: runner.os == 'Linux'
         run: >
-          systemctl --user start pipewire
           cargo run --example device_info --no-default-features --features default-pipewire | jq -e
           '.statistics.device_count > 0
           and .statistics.device_count == (.devices | length)
