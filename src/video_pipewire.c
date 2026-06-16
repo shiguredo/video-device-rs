@@ -865,20 +865,31 @@ int video_pipewire_session_start(struct VideoSession* session, FrameCallback cal
                            &stream_events, session);
 
     // ビデオフォーマットを設定する
+    // 単一値ではなく choice ベースの範囲指定にすることで
+    // V4L2 プラグイン等とのフォーマット交渉成功率を高める
     uint8_t params_buffer[1024];
     struct spa_pod_builder builder =
         SPA_POD_BUILDER_INIT(params_buffer, sizeof(params_buffer));
 
-    struct spa_video_info_raw video_info = {0};
-    video_info.format = session->requested_format;
-    video_info.size.width = session->requested_width;
-    video_info.size.height = session->requested_height;
-    video_info.framerate.num = session->requested_fps;
-    video_info.framerate.denom = 1;
+    struct spa_fraction def_fps = SPA_FRACTION(session->requested_fps, 1);
+    struct spa_fraction min_fps = SPA_FRACTION(1, 1);
+    struct spa_fraction max_fps = SPA_FRACTION(60, 1);
+
+    struct spa_rectangle def_size =
+        SPA_RECTANGLE(session->requested_width, session->requested_height);
+    struct spa_rectangle min_size = SPA_RECTANGLE(1, 1);
+    struct spa_rectangle max_size = SPA_RECTANGLE(3840, 2160);
 
     const struct spa_pod* params[1];
-    params[0] = spa_format_video_raw_build(&builder, SPA_PARAM_EnumFormat,
-                                           &video_info);
+    params[0] = spa_pod_builder_add_object(&builder,
+        SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat,
+        SPA_FORMAT_mediaType,    SPA_POD_Id(SPA_MEDIA_TYPE_video),
+        SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
+        SPA_FORMAT_VIDEO_format, SPA_POD_Id(session->requested_format),
+        SPA_FORMAT_VIDEO_framerate,
+            SPA_POD_CHOICE_RANGE_Fraction(&def_fps, &min_fps, &max_fps),
+        SPA_FORMAT_VIDEO_size,
+            SPA_POD_CHOICE_RANGE_Rectangle(&def_size, &min_size, &max_size));
 
     // ストリームを接続する
     int result = pw_stream_connect(
