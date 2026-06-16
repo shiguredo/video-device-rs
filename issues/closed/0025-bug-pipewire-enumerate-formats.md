@@ -2,7 +2,7 @@
 
 - Priority: High
 - Created: 2026-06-15
-- Completed: {YYYY-MM-DD}
+- Completed: 2026-06-17
 - Model: Opus 4.7
 - Branch: feature/fix-pipewire-enumerate-formats
 - Polished: 2026-06-15
@@ -280,4 +280,39 @@ static void enum_core_done(void* data, uint32_t id, int seq) {
 
 ## 解決方法
 
-{完了時に記入}
+### フォーマット列挙修正
+
+`video_pipewire_enumerate_devices` がフォーマット情報を一切取得せず `formats = NULL; format_count = 0` のままだった問題を修正した。
+
+- `PendingNode` 構造体を追加し、`EnumerateContext` に `pending` 配列と `enum_params_sync` フィールドを拡張
+- `enum_registry_global` で Video/Source Node 発見時に `pw_registry_bind` → `pw_node_add_listener` → `pw_node_enum_params(SPA_PARAM_EnumFormat)` を発行
+- `on_node_param` コールバックで `spa_format_parse` / `spa_format_video_raw_parse` / `convert_spa_video_format` により NV12 / YUY2 / I420 を抽出
+- `enum_core_done` を 2 段階 sync 化。1 段目で registry 列挙完了後、2 段目 sync で全 Node の param ストリーム完了を待ってから quit
+- クリーンアップで `PendingNode.formats` を `VideoDevice.formats` に移動し `pending` 配列を解放
+- fps は未取得のため仮値 (1.0 / 30.0) を設定。choice 展開は本修正のスコープ外
+- `tests/test_pipewire.rs` を新規追加
+
+### キャプチャ開始時の無限ループ修正
+
+`video_pipewire_session_start` の while ループが `pw_stream_get_state` で `PW_STREAM_STATE_ERROR` を検出できず無限ループする問題を修正した（PipeWire 内部で ERROR 状態が PAUSED にリセットされるため）。
+
+- `VideoSession` に `atomic_int stream_error` フラグを追加
+- `on_stream_state_changed` で ERROR 遷移時にフラグを立てる
+- while ループで `stream_error` フラグと `pw_stream_get_state` のエラーメッセージの両方をチェックし、エラー時は即座に `-5` で復帰
+
+### フォーマット交渉の改善
+
+`spa_format_video_raw_build` による単一値指定では V4L2 プラグインとのフォーマット交渉に失敗しキャプチャが開始できない問題を修正した。
+
+- フォーマット指定を `spa_pod_builder_add_object` による手動構築に変更
+- `SPA_FORMAT_VIDEO_format`: NV12 / YUY2 / I420 の choice 列挙
+- `SPA_FORMAT_VIDEO_framerate`: choice range (default=リクエスト値, min=1fps, max=60fps)
+- `SPA_FORMAT_VIDEO_size`: choice range (default=リクエスト値, min=1x1, max=3840x2160)
+
+### PipeWire 用 CI 整備
+
+Device Test ジョブで PipeWire バックエンドのテストが実行できるよう CI を整備した。
+
+- Device Test ジョブに `systemctl --user start pipewire` を追加し、PipeWire デーモンを起動
+- self-hosted Linux runner 向けに `XDG_RUNTIME_DIR` 設定を追加
+- Windows clippy 対応と CI ステップの環境ごとの分離
