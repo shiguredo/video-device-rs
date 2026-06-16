@@ -127,7 +127,7 @@ jobs:
           and (.devices | all(.format_count > 0))'
       - name: Run device_list for pipewire
         if: runner.os == 'Linux'
-        run: |
+        run: >
           systemctl --user start pipewire
           cargo run --example device_list --no-default-features --features default-pipewire | jq -e
           '.device_count > 0
@@ -148,7 +148,7 @@ jobs:
           and (.devices | all(.formats | all(.pixel_format | length > 0)))'
       - name: Run device_info for pipewire
         if: runner.os == 'Linux'
-        run: |
+        run: >
           systemctl --user start pipewire
           cargo run --example device_info --no-default-features --features default-pipewire | jq -e
           '.statistics.device_count > 0
