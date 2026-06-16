@@ -48,7 +48,7 @@ mod pipewire_tests {
         }
     }
 
-    // 複数デバイスがある場合に各デバイスの名前が重複していないことを確認する
+    // 複数デバイスがある場合に各デバイスの unique_id が重複していないことを確認する
     #[test]
     #[ignore]
     fn pipewire_multiple_devices_formats() {
@@ -57,16 +57,16 @@ mod pipewire_tests {
         if list.is_empty() {
             return;
         }
-        let names: Vec<String> = list
+        let ids: Vec<String> = list
             .as_slice()
             .iter()
-            .map(|d| d.name().unwrap_or_default())
+            .map(|d| d.unique_id().unwrap_or_default())
             .collect();
-        let unique_names: std::collections::HashSet<_> = names.iter().collect();
+        let unique_ids: std::collections::HashSet<_> = ids.iter().collect();
         assert_eq!(
-            names.len(),
-            unique_names.len(),
-            "デバイス名が重複していないこと"
+            ids.len(),
+            unique_ids.len(),
+            "unique_id が重複していないこと"
         );
     }
 

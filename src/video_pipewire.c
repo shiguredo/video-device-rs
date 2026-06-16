@@ -496,7 +496,7 @@ static int required_bytes_yuy2(int32_t stride, int width, int height, uint64_t* 
 
 // ストリームの param_changed コールバック
 static void on_param_changed(void* userdata, uint32_t id,
-                              const struct spa_pod* param) {
+                                const struct spa_pod* param) {
     struct VideoSession* session = userdata;
 
     if (id != SPA_PARAM_Format || !param) {
@@ -885,7 +885,11 @@ int video_pipewire_session_start(struct VideoSession* session, FrameCallback cal
         SPA_TYPE_OBJECT_Format, SPA_PARAM_EnumFormat,
         SPA_FORMAT_mediaType,    SPA_POD_Id(SPA_MEDIA_TYPE_video),
         SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
-        SPA_FORMAT_VIDEO_format, SPA_POD_Id(session->requested_format),
+        SPA_FORMAT_VIDEO_format, SPA_POD_CHOICE_ENUM_Id(4,
+            session->requested_format,
+            session->requested_format,
+            SPA_VIDEO_FORMAT_YUY2,
+            SPA_VIDEO_FORMAT_I420),
         SPA_FORMAT_VIDEO_framerate,
             SPA_POD_CHOICE_RANGE_Fraction(&def_fps, &min_fps, &max_fps),
         SPA_FORMAT_VIDEO_size,
