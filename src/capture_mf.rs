@@ -132,50 +132,53 @@ impl MfCaptureImpl {
 
             // Media Foundation 初期化（失敗時は即座にエラーを返す）
             MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::SessionCreateFailed)?;
-            let result = {
-                // デバイスを取得
-                let media_source = activate_device(config.device_id.as_deref())?;
 
-                // SourceReader を作成
-                let source_reader = create_source_reader(
-                    &media_source,
-                    config.width,
-                    config.height,
-                    config.fps,
-                    config.pixel_format,
-                )?;
+            // 構築途中で失敗した時に MFShutdown を呼びたいので続きの処理をクロージャに切り出して呼び出す
+            let result: Result<Self> = (move || -> Result<Self> {
+                unsafe {
+                    // デバイスを取得
+                    let media_source = activate_device(config.device_id.as_deref())?;
 
-                // 設定されたメディアタイプからフォーマット情報を取得
-                let (pixel_format, width, height) = get_configured_format(&source_reader)?;
-                if matches!(pixel_format, PixelFormat::Unknown(_)) {
-                    return Err(Error::UnsupportedPixelFormat(pixel_format));
+                    // SourceReader を作成
+                    let source_reader = create_source_reader(
+                        &media_source,
+                        config.width,
+                        config.height,
+                        config.fps,
+                        config.pixel_format,
+                    )?;
+
+                    // 設定されたメディアタイプからフォーマット情報を取得
+                    let (pixel_format, width, height) = get_configured_format(&source_reader)?;
+                    if matches!(pixel_format, PixelFormat::Unknown(_)) {
+                        return Err(Error::UnsupportedPixelFormat(pixel_format));
+                    }
+
+                    let running = Arc::new(AtomicBool::new(false));
+
+                    let session = SessionData {
+                        source_reader,
+                        media_source,
+                        pixel_format,
+                        width,
+                        height,
+                    };
+
+                    Ok(Self {
+                        session: Some(session),
+                        running,
+                        callback: Some(Box::new(callback)),
+                        capture_thread: None,
+                        config,
+                        _com_guard: com_guard,
+                    })
                 }
-
-                let running = Arc::new(AtomicBool::new(false));
-
-                let session = SessionData {
-                    source_reader,
-                    media_source,
-                    pixel_format,
-                    width,
-                    height,
-                };
-
-                Ok(Self {
-                    session: Some(session),
-                    running,
-                    callback: Some(Box::new(callback)),
-                    capture_thread: None,
-                    config,
-                    _com_guard: com_guard,
-                })
-            };
+            })();
 
             // 構築途中で失敗した場合は MFStartup とつりあわせるために MFShutdown を呼ぶ
             if result.is_err() {
                 let _ = MFShutdown();
             }
-
             result
         }
     }

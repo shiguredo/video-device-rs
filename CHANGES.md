@@ -31,6 +31,8 @@
   - @melpon
 - [FIX] Windows の IMFActivate がリークしていたのを修正する
   - @melpon
+- [FIX] Windows で VideoCapture 構築途中失敗時に Media Foundation の参照カウントが残るのを修正する
+  - @melpon
 
 ### misc
 
