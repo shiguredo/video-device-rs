@@ -136,6 +136,10 @@ pub fn start(&mut self) -> Result<()> {
 - `cargo clippy --workspace --all-targets -- -D warnings` が通る
 - `CHANGES.md` の `## develop` 配下に `[FIX]` エントリを追加する (例: `[FIX] Windows でキャプチャスレッド panic 後の VideoCapture 再 start が黙って no-op になる問題を stderr ログで可視化する`)。担当者行 (`- @<github-id>`) を含める。防御的修正である `start` の判定順序変更は外部から観察できない内部実装変更のため、CHANGES.md には記載しない
 
+## pending 理由
+
+- `eprintln!` による stderr 出力で十分か、それとも `log` クレート等のログライブラリ依存を追加するか、設計判断に議論の余地があるため pending とする
+
 ## 解決方法
 
 {完了時に記入}
