@@ -94,6 +94,7 @@ jobs:
       - name: Run ignored tests (device required)
         if: runner.os != 'macOS'
         run: |
+          set -ex
           # V4L2
           cargo test --workspace -- --ignored
           # PipeWire
