@@ -97,6 +97,7 @@ jobs:
           # V4L2
           cargo test --workspace -- --ignored
           # PipeWire
+          systemctl --user start pipewire
           cargo test --workspace --no-default-features --features default-pipewire -- --ignored
       - name: Run device_list
         run: >
@@ -108,6 +109,7 @@ jobs:
           and (.devices | all(.unique_id | length > 0))
           and (.devices | all(.format_count > 0))'
           # PipeWire
+          systemctl --user start pipewire
           cargo run --example device_list --no-default-features --features default-pipewire | jq -e
           '.device_count > 0
           and .device_count == (.devices | length)
@@ -127,6 +129,7 @@ jobs:
           and (.devices | all(.formats | all(.width > 0 and .height > 0 and .max_fps > 0)))
           and (.devices | all(.formats | all(.pixel_format | length > 0)))'
           # PipeWire
+          systemctl --user start pipewire
           cargo run --example device_info --no-default-features --features default-pipewire | jq -e
           '.statistics.device_count > 0
           and .statistics.device_count == (.devices | length)
