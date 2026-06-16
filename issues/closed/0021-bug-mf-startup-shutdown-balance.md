@@ -2,7 +2,7 @@
 
 - Priority: High
 - Created: 2026-06-15
-- Completed: {YYYY-MM-DD}
+- Completed: 2026-06-16
 - Model: Opus 4.7
 - Branch: feature/fix-mf-startup-shutdown-balance
 - Polished: 2026-06-15
@@ -137,4 +137,4 @@ RAII ガード型による構造改善を別途進めたい場合は refactor �
 
 ## 解決方法
 
-{完了時に記入}
+`MfCaptureImpl::new` 内の `let result = { ... }` ブロック式を `move` 即時実行クロージャに置き換えた。これにより構築途中の `?` および `return Err(...)` の return 先がクロージャに限定され、`activate_device` / `create_source_reader` / `get_configured_format` の失敗時や `Unknown` ピクセルフォーマット拒否時でも `if result.is_err()` 分岐に到達し `MFShutdown` が必ず呼ばれるようになった。`MFStartup` 自体の失敗時は従来通り `MfCaptureImpl::new` から直接 return し `MFShutdown` を呼ばない。正常系 (`MFStartup` 成功 → `Self` 構築成功) では `Drop for MfCaptureImpl` 内の `MFShutdown` で対消滅する。
