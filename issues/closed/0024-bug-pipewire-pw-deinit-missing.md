@@ -2,7 +2,7 @@
 
 - Priority: Medium
 - Created: 2026-06-15
-- Completed: {YYYY-MM-DD}
+- Completed: 2026-06-16
 - Model: Opus 4.7
 - Branch: feature/fix-pipewire-pw-deinit-missing
 - Polished: 2026-06-15
@@ -156,4 +156,24 @@ void video_pipewire_session_destroy(struct VideoSession* session) {
 
 ## 解決方法
 
-{完了時に記入}
+`src/video_pipewire.c` の以下の 9 箇所に `pw_deinit();` を追加した。
+
+### `video_pipewire_enumerate_devices` の 5 経路
+
+- `pw_main_loop_new` 失敗時の `return -2;` 直前
+- `pw_context_new` 失敗時の `return -2;` 直前
+- `pw_context_connect` 失敗時の `return -3;` 直前
+- `pw_core_get_registry` 失敗時の `return -4;` 直前
+- 正常 return (`return 0;`) の直前 (cleanup ブロック後)
+
+### `video_pipewire_session_create` の 3 経路
+
+- `requested_format == SPA_VIDEO_FORMAT_UNKNOWN` 時の `return NULL;` 直前
+- `pw_thread_loop_new` 失敗時の `return NULL;` 直前
+- `pw_context_new` 失敗時の `return NULL;` 直前
+
+### `video_pipewire_session_destroy` の 1 経路
+
+- `free(session->device_id)` と `free(session)` の間に `pw_deinit();` を追加
+
+`pw_init` 2 件に対し `pw_deinit` 9 件ですべての成功・失敗経路で 1:1 対応を確保した。`CHANGES.md` に `[FIX]` エントリを追加した。
