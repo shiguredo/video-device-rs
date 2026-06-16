@@ -146,6 +146,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 - 新規テストは本 issue では追加しない (`frame_callback` を Rust テストから直接呼び出すには `CaptureContext` を実機セッションつきで構築する必要があり、本リポジトリの test_capture.rs 構造に乗らない。`process_sample` は `unsafe fn` で `IMFSample` を要求するためテストから直接呼べない。closed/0009, closed/0018, 0021, 0022 と同様にコードレビューで分岐網羅と panic 吸収の正しさを担保する)
 - `CHANGES.md` の `## develop` 配下に `[FIX]` エントリを追加する (例: `[FIX] ユーザフレームコールバックの panic が FFI 境界を跨いでプロセスを abort させる問題を catch_unwind で修正する`)。担当者行 (`- @<github-id>`) を含める
 
+## pending にした理由
+
+- `catch_unwind` による panic 回復は不要。panic はユーザコールバック側のバグであり、回復を試みると異常終了を阻害し、破壊された内部状態のまま動作が継続してしまう危険がある
+- `catch_unwind` してはいけない。むしろ panic をそのまま伝播させ、プロセスごと異常終了することで、ユーザにバグ修正を促す方が安全である
+
 ## 解決方法
 
 {完了時に記入}
