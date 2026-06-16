@@ -83,6 +83,23 @@ jobs:
         run: echo %USERPROFILE%\.cargo\bin>> "%GITHUB_PATH%"
       - run: rustup update stable
       - run: cargo test --workspace
+
+      # self-hosted Linux ランナーでは GitHub Actions サービス環境から
+      # PulseAudio/PipeWire のソケットが見つからないことがあり、
+      # 音声デバイスが列挙されない。その対策として XDG_RUNTIME_DIR を設定する。
+      - name: Setup XDG_RUNTIME_DIR for self-hosted Linux device tests
+        if: ${{ runner.environment == 'self-hosted' && runner.os == 'Linux' }}
+        run: |
+          if [ -z "$XDG_RUNTIME_DIR" ]; then
+            RUNTIME_DIR="/run/user/$(id - u)"
+            if [ -d "$RUNTIME_DIR" ]; then
+              echo "XDG_RUNTIME_DIR=$RUNTIME_DIR" >> "$GITHUB_ENV"
+              echo "Set XDG_RUNTIME_DIR=$RUNTIME_DIR"
+            else
+              echo "Warning: $RUNTIME_DIR does not exist"
+            fi
+          fi
+
       # macOS ではカメラキャプチャテストをスキップする。
       # macOS の TCC (Transparency, Consent, and Control) はカメラアクセスに
       # GUI での対話的な許可が必要であり、launchd サービスとして動作する
