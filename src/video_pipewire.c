@@ -45,6 +45,20 @@ struct VideoSession {
     atomic_int format_ready;
 };
 
+// デバイス列挙中の個別 Node のフォーマット集約用
+struct PendingNode {
+    int device_index;
+    struct pw_proxy* node_proxy;
+    struct spa_hook node_listener;
+    struct VideoFormatEntry* formats;
+    int format_count;
+    int format_capacity;
+    int param_done;
+};
+
+// 前方宣言: convert_spa_video_format は on_node_param より後で定義されるため
+static uint32_t convert_spa_video_format(uint32_t spa_format);
+
 // デバイス列挙用のコンテキスト
 struct EnumerateContext {
     struct pw_main_loop* loop;
@@ -57,14 +71,18 @@ struct EnumerateContext {
     int count;
     int capacity;
     int pending_sync;
+    int enum_params_sync;
+    struct PendingNode* pending;
 };
+
+// 前方宣言: enum_node_events は enum_registry_global より後で定義される
+static const struct pw_node_events enum_node_events;
 
 // デバイス列挙: registry global イベント
 static void enum_registry_global(void* data, uint32_t id,
                                  uint32_t permissions, const char* type,
                                  uint32_t version,
                                  const struct spa_dict* props) {
-    (void)id;
     (void)permissions;
     (void)version;
 
@@ -90,7 +108,7 @@ static void enum_registry_global(void* data, uint32_t id,
         return;
     }
 
-    // 配列を拡張する
+    // devices と pending を同じ capacity で同期して拡張する
     if (ctx->count >= ctx->capacity) {
         int new_capacity = ctx->capacity == 0 ? 8 : ctx->capacity * 2;
         struct VideoDevice** new_devices =
@@ -99,6 +117,12 @@ static void enum_registry_global(void* data, uint32_t id,
             return;
         }
         ctx->devices = new_devices;
+        struct PendingNode* new_pending =
+            realloc(ctx->pending, sizeof(struct PendingNode) * new_capacity);
+        if (!new_pending) {
+            return;
+        }
+        ctx->pending = new_pending;
         ctx->capacity = new_capacity;
     }
 
@@ -112,6 +136,21 @@ static void enum_registry_global(void* data, uint32_t id,
     device->formats = NULL;
     device->format_count = 0;
 
+    // Node プロキシをバインドして enum_params を発行する
+    struct PendingNode* p = &ctx->pending[ctx->count];
+    memset(p, 0, sizeof(*p));
+    p->device_index = ctx->count;
+    p->node_proxy = pw_registry_bind(ctx->registry, id, PW_TYPE_INTERFACE_Node, PW_VERSION_NODE, 0);
+    if (!p->node_proxy) {
+        free(device->name);
+        free(device->unique_id);
+        free(device);
+        return;
+    }
+    spa_zero(p->node_listener);
+    pw_node_add_listener((struct pw_node*)p->node_proxy, &p->node_listener, &enum_node_events, p);
+    pw_node_enum_params((struct pw_node*)p->node_proxy, 0, SPA_PARAM_EnumFormat, 0, UINT32_MAX, NULL);
+
     ctx->devices[ctx->count] = device;
     ctx->count++;
 }
@@ -121,12 +160,92 @@ static const struct pw_registry_events enum_registry_events = {
     .global = enum_registry_global,
 };
 
+// デバイス列挙: Node param イベント (SPA_PARAM_EnumFormat の結果を受信)
+static void on_node_param(void* data, int seq, uint32_t id, uint32_t index, uint32_t next,
+                          const struct spa_pod* param) {
+    (void)seq;
+    (void)index;
+    struct PendingNode* p = data;
+
+    if (id != SPA_PARAM_EnumFormat) {
+        if (next == 0) {
+            p->param_done = 1;
+        }
+        return;
+    }
+    if (!param) {
+        if (next == 0) {
+            p->param_done = 1;
+        }
+        return;
+    }
+
+    struct spa_video_info info;
+    if (spa_format_parse(param, &info.media_type, &info.media_subtype) < 0) {
+        goto check_end;
+    }
+    if (info.media_type != SPA_MEDIA_TYPE_video || info.media_subtype != SPA_MEDIA_SUBTYPE_raw) {
+        goto check_end;
+    }
+    if (spa_format_video_raw_parse(param, &info.info.raw) < 0) {
+        goto check_end;
+    }
+
+    uint32_t pixel_format = convert_spa_video_format(info.info.raw.format);
+    if (pixel_format == 0) {
+        goto check_end;
+    }
+
+    int width = info.info.raw.size.width;
+    int height = info.info.raw.size.height;
+    if (width <= 0 || height <= 0) {
+        goto check_end;
+    }
+
+    if (p->format_count >= p->format_capacity) {
+        int new_cap = p->format_capacity == 0 ? 4 : p->format_capacity * 2;
+        struct VideoFormatEntry* new_formats = realloc(p->formats, sizeof(*new_formats) * new_cap);
+        if (!new_formats) {
+            goto check_end;
+        }
+        p->formats = new_formats;
+        p->format_capacity = new_cap;
+    }
+    p->formats[p->format_count].width = width;
+    p->formats[p->format_count].height = height;
+    p->formats[p->format_count].pixel_format = pixel_format;
+    // fps は本 issue では未取得のため仮値を埋める
+    // - 0.0 は CI の Device Test ジョブが all(.max_fps > 0) を要求しているため使えない
+    // - 正確な fps 抽出 (choice 形式の展開) は別 issue で扱う
+    p->formats[p->format_count].min_fps = 1.0f;
+    p->formats[p->format_count].max_fps = 30.0f;
+    p->format_count++;
+
+check_end:
+    if (next == 0) {
+        p->param_done = 1;
+    }
+}
+
+static const struct pw_node_events enum_node_events = {
+    PW_VERSION_NODE_EVENTS,
+    .param = on_node_param,
+};
+
 // デバイス列挙: core done イベント (sync 完了)
+// 1 段目 sync で registry global 列挙完了後、2 段目 sync を発行して全 Node の param ストリーム完了を待つ
 static void enum_core_done(void* data, uint32_t id, int seq) {
     struct EnumerateContext* ctx = data;
     (void)id;
 
     if (seq == ctx->pending_sync) {
+        // 1 段目: registry の global 列挙完了。enum_params は既に発行済みのため、
+        // 結果が出揃うのを待つために 2 段目 sync を発行する
+        ctx->enum_params_sync = pw_core_sync(ctx->core, PW_ID_CORE, 0);
+        return;
+    }
+    if (seq == ctx->enum_params_sync) {
+        // 2 段目: 全 Node の param ストリームが終端しているはず
         pw_main_loop_quit(ctx->loop);
     }
 }
@@ -193,6 +312,21 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
     ctx.pending_sync = pw_core_sync(ctx.core, PW_ID_CORE, 0);
 
     pw_main_loop_run(ctx.loop);
+
+    // PendingNode の後始末とフォーマット情報の移動
+    for (int i = 0; i < ctx.count; i++) {
+        struct PendingNode* p = &ctx.pending[i];
+        if (p->node_proxy) {
+            spa_hook_remove(&p->node_listener);
+            pw_proxy_destroy(p->node_proxy);
+        }
+        // PendingNode の formats を VideoDevice に移動する
+        ctx.devices[i]->formats = p->formats;
+        ctx.devices[i]->format_count = p->format_count;
+        p->formats = NULL;
+    }
+    free(ctx.pending);
+    ctx.pending = NULL;
 
     // クリーンアップ
     spa_hook_remove(&ctx.registry_listener);

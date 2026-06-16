@@ -35,6 +35,9 @@
   - @melpon
 - [FIX] PipeWire バックエンドで pw_init に対する pw_deinit が呼ばれずリソースが残るのを修正する
   - @melpon
+- [FIX] PipeWire でデバイスのフォーマット列挙が常に空だったのを修正する
+  - fps は本修正では仮値 (1.0 / 30.0) で埋まり、choice 形式の正確な fps 抽出は別途対応
+  - @melpon
 
 ### misc
 
