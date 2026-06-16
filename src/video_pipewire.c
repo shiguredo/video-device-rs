@@ -1,13 +1,11 @@
 // PipeWire を使った Linux 用ビデオキャプチャ実装
 
-#include <fcntl.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 #include <pipewire/pipewire.h>
 #include <spa/param/video/format-utils.h>
@@ -15,52 +13,6 @@
 #include <spa/pod/builder.h>
 
 #include "video_pipewire.h"
-
-// pw_init / pw_deinit が libdbus 経由で stderr に
-// "Failed to connect to bus: No medium found" を出力するのを抑制する。
-// D-Bus が利用できない CI 環境等で発生する既知のノイズであり、
-// キャプチャ機能自体には影響しない。
-static int save_stderr = -1;
-
-static void suppress_pipewire_stderr(void) {
-    if (save_stderr >= 0) {
-        // 再入防止
-        return;
-    }
-    int fd = dup(STDERR_FILENO);
-    if (fd < 0) {
-        return;
-    }
-    int devnull = open("/dev/null", O_WRONLY);
-    if (devnull < 0) {
-        close(fd);
-        return;
-    }
-    dup2(devnull, STDERR_FILENO);
-    close(devnull);
-    save_stderr = fd;
-}
-
-static void restore_pipewire_stderr(void) {
-    if (save_stderr < 0) {
-        return;
-    }
-    dup2(save_stderr, STDERR_FILENO);
-    close(save_stderr);
-    save_stderr = -1;
-}
-
-static void pw_init_quiet(int* argc, char** argv[]) {
-    suppress_pipewire_stderr();
-    pw_init(argc, argv);
-    restore_pipewire_stderr();
-}
-
-static void pw_deinit_quiet(void) {
-    suppress_pipewire_stderr();
-    pw_deinit();
-    restore_pipewire_stderr();
-}
 
 // VideoDevice 構造体
 struct VideoDevice {
@@ -313,13 +265,13 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
     *devices = NULL;
     *count = 0;
 
-    pw_init_quiet(NULL, NULL);
+    pw_init(NULL, NULL);
 
     struct EnumerateContext ctx = {0};
 
     ctx.loop = pw_main_loop_new(NULL);
     if (!ctx.loop) {
-        pw_deinit_quiet();
+        pw_deinit();
         return -2;
     }
 
@@ -327,7 +279,7 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
         pw_context_new(pw_main_loop_get_loop(ctx.loop), NULL, 0);
     if (!ctx.context) {
         pw_main_loop_destroy(ctx.loop);
-        pw_deinit_quiet();
+        pw_deinit();
         return -2;
     }
 
@@ -335,7 +287,7 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
     if (!ctx.core) {
         pw_context_destroy(ctx.context);
         pw_main_loop_destroy(ctx.loop);
-        pw_deinit_quiet();
+        pw_deinit();
         return -3;
     }
 
@@ -349,7 +301,7 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
         pw_core_disconnect(ctx.core);
         pw_context_destroy(ctx.context);
         pw_main_loop_destroy(ctx.loop);
-        pw_deinit_quiet();
+        pw_deinit();
         return -4;
     }
 
@@ -384,7 +336,7 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
     pw_core_disconnect(ctx.core);
     pw_context_destroy(ctx.context);
     pw_main_loop_destroy(ctx.loop);
-    pw_deinit_quiet();
+    pw_deinit();
 
     *devices = ctx.devices;
     *count = ctx.count;
@@ -762,7 +714,7 @@ struct VideoSession* video_pipewire_session_create(const char* device_id, int wi
         return NULL;
     }
 
-    pw_init_quiet(NULL, NULL);
+    pw_init(NULL, NULL);
 
     // デフォルト値の設定
     if (width <= 0) {
@@ -780,7 +732,7 @@ struct VideoSession* video_pipewire_session_create(const char* device_id, int wi
             ? SPA_VIDEO_FORMAT_NV12
             : convert_video_pixel_format_to_spa(requested_pixel_format);
     if (session->requested_format == SPA_VIDEO_FORMAT_UNKNOWN) {
-        pw_deinit_quiet();
+        pw_deinit();
         free(session);
         return NULL;
     }
@@ -796,7 +748,7 @@ struct VideoSession* video_pipewire_session_create(const char* device_id, int wi
     // thread loop を作成する
     session->thread_loop = pw_thread_loop_new("shiguredo-video", NULL);
     if (!session->thread_loop) {
-        pw_deinit_quiet();
+        pw_deinit();
         free(session->device_id);
         free(session);
         return NULL;
@@ -806,7 +758,7 @@ struct VideoSession* video_pipewire_session_create(const char* device_id, int wi
         pw_thread_loop_get_loop(session->thread_loop), NULL, 0);
     if (!session->context) {
         pw_thread_loop_destroy(session->thread_loop);
-        pw_deinit_quiet();
+        pw_deinit();
         free(session->device_id);
         free(session);
         return NULL;
@@ -842,7 +794,7 @@ void video_pipewire_session_destroy(struct VideoSession* session) {
     }
 
     free(session->device_id);
-    pw_deinit_quiet();
+    pw_deinit();
     free(session);
 }
 
