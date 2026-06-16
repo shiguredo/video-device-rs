@@ -99,7 +99,9 @@ jobs:
               echo "Warning: $RUNTIME_DIR does not exist"
             fi
           fi
-          systemctl --user start pipewire
+      - name: Start pipewire daemon
+        if: ${{ runner.environment == 'self-hosted' && runner.os == 'Linux' }}
+        run: systemctl --user start pipewire
 
       # macOS ではカメラキャプチャテストをスキップする。
       # macOS の TCC (Transparency, Consent, and Control) はカメラアクセスに
