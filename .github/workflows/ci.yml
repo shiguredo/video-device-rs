@@ -111,22 +111,23 @@ jobs:
       - name: Run ignored tests (device required)
         if: runner.os != 'macOS'
         run: |
-          set -ex
-          # V4L2
           cargo test --workspace -- --ignored
-          # PipeWire
+      - name: Run ignored tests for pipewire (device required)
+        if: runner.os == 'Linux'
+        run: |
           systemctl --user start pipewire
           cargo test --workspace --no-default-features --features default-pipewire -- --ignored
       - name: Run device_list
         run: >
-          # V4L2
           cargo run --example device_list | jq -e
           '.device_count > 0
           and .device_count == (.devices | length)
           and (.devices | all(.name | length > 0))
           and (.devices | all(.unique_id | length > 0))
           and (.devices | all(.format_count > 0))'
-          # PipeWire
+      - name: Run device_list for pipewire
+        if: runner.os == 'Linux'
+        run: |
           systemctl --user start pipewire
           cargo run --example device_list --no-default-features --features default-pipewire | jq -e
           '.device_count > 0
@@ -136,7 +137,6 @@ jobs:
           and (.devices | all(.format_count > 0))'
       - name: Run device_info
         run: >
-          # V4L2
           cargo run --example device_info | jq -e
           '.statistics.device_count > 0
           and .statistics.device_count == (.devices | length)
@@ -146,7 +146,9 @@ jobs:
           and (.devices | all(.format_count > 0))
           and (.devices | all(.formats | all(.width > 0 and .height > 0 and .max_fps > 0)))
           and (.devices | all(.formats | all(.pixel_format | length > 0)))'
-          # PipeWire
+      - name: Run device_info for pipewire
+        if: runner.os == 'Linux'
+        run: |
           systemctl --user start pipewire
           cargo run --example device_info --no-default-features --features default-pipewire | jq -e
           '.statistics.device_count > 0
