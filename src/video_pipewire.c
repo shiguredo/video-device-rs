@@ -43,6 +43,7 @@ struct VideoSession {
     int negotiated_stride;
     atomic_int running;
     atomic_int format_ready;
+    atomic_int stream_error;
 };
 
 // デバイス列挙中の個別 Node のフォーマット集約用
@@ -661,8 +662,10 @@ static void on_stream_state_changed(void* userdata,
     struct VideoSession* session = userdata;
 
     switch (state) {
-        case PW_STREAM_STATE_STREAMING:
         case PW_STREAM_STATE_ERROR:
+            atomic_store(&session->stream_error, 1);
+            // fallthrough
+        case PW_STREAM_STATE_STREAMING:
         case PW_STREAM_STATE_UNCONNECTED:
             pw_thread_loop_signal(session->thread_loop, false);
             break;
@@ -740,6 +743,7 @@ struct VideoSession* video_pipewire_session_create(const char* device_id, int wi
     session->device_id = device_id ? strdup(device_id) : NULL;
     atomic_init(&session->running, 0);
     atomic_init(&session->format_ready, 0);
+    atomic_init(&session->stream_error, 0);
 
     // thread loop を作成する
     session->thread_loop = pw_thread_loop_new("shiguredo-video", NULL);
@@ -895,13 +899,16 @@ int video_pipewire_session_start(struct VideoSession* session, FrameCallback cal
 
     // ストリームが streaming 状態になるまで待機する
     while (1) {
+        const char* stream_error = NULL;
         enum pw_stream_state state = pw_stream_get_state(
-            session->stream, NULL);
+            session->stream, &stream_error);
         if (state == PW_STREAM_STATE_STREAMING) {
             break;
         }
         if (state == PW_STREAM_STATE_ERROR ||
-            state == PW_STREAM_STATE_UNCONNECTED) {
+            state == PW_STREAM_STATE_UNCONNECTED ||
+            stream_error != NULL ||
+            atomic_load(&session->stream_error)) {
             pw_stream_destroy(session->stream);
             session->stream = NULL;
             spa_hook_remove(&session->core_listener);
