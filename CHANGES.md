@@ -33,6 +33,8 @@
   - @melpon
 - [FIX] Windows で VideoCapture 構築途中失敗時に Media Foundation の参照カウントが残るのを修正する
   - @melpon
+- [FIX] PipeWire バックエンドで pw_init に対する pw_deinit が呼ばれずリソースが残るのを修正する
+  - @melpon
 
 ### misc
 

@@ -151,6 +151,7 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
 
     ctx.loop = pw_main_loop_new(NULL);
     if (!ctx.loop) {
+        pw_deinit();
         return -2;
     }
 
@@ -158,6 +159,7 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
         pw_context_new(pw_main_loop_get_loop(ctx.loop), NULL, 0);
     if (!ctx.context) {
         pw_main_loop_destroy(ctx.loop);
+        pw_deinit();
         return -2;
     }
 
@@ -165,6 +167,7 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
     if (!ctx.core) {
         pw_context_destroy(ctx.context);
         pw_main_loop_destroy(ctx.loop);
+        pw_deinit();
         return -3;
     }
 
@@ -178,6 +181,7 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
         pw_core_disconnect(ctx.core);
         pw_context_destroy(ctx.context);
         pw_main_loop_destroy(ctx.loop);
+        pw_deinit();
         return -4;
     }
 
@@ -197,6 +201,7 @@ int video_pipewire_enumerate_devices(struct VideoDevice*** devices, int* count) 
     pw_core_disconnect(ctx.core);
     pw_context_destroy(ctx.context);
     pw_main_loop_destroy(ctx.loop);
+    pw_deinit();
 
     *devices = ctx.devices;
     *count = ctx.count;
@@ -590,6 +595,7 @@ struct VideoSession* video_pipewire_session_create(const char* device_id, int wi
             ? SPA_VIDEO_FORMAT_NV12
             : convert_video_pixel_format_to_spa(requested_pixel_format);
     if (session->requested_format == SPA_VIDEO_FORMAT_UNKNOWN) {
+        pw_deinit();
         free(session);
         return NULL;
     }
@@ -604,6 +610,7 @@ struct VideoSession* video_pipewire_session_create(const char* device_id, int wi
     // thread loop を作成する
     session->thread_loop = pw_thread_loop_new("shiguredo-video", NULL);
     if (!session->thread_loop) {
+        pw_deinit();
         free(session->device_id);
         free(session);
         return NULL;
@@ -613,6 +620,7 @@ struct VideoSession* video_pipewire_session_create(const char* device_id, int wi
         pw_thread_loop_get_loop(session->thread_loop), NULL, 0);
     if (!session->context) {
         pw_thread_loop_destroy(session->thread_loop);
+        pw_deinit();
         free(session->device_id);
         free(session);
         return NULL;
@@ -648,6 +656,7 @@ void video_pipewire_session_destroy(struct VideoSession* session) {
     }
 
     free(session->device_id);
+    pw_deinit();
     free(session);
 }
 
