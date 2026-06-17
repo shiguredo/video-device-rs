@@ -105,6 +105,10 @@ fuzzing-list:
     - @<github-id>
   ```
 
+## pending 理由
+
+わざわざ削除するほどのものでもないので pending とする。
+
 ## 解決方法
 
 {完了時に記入}
