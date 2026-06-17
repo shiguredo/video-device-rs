@@ -31,6 +31,15 @@
   - @melpon
 - [FIX] Windows の IMFActivate がリークしていたのを修正する
   - @melpon
+- [FIX] Windows で VideoCapture 構築途中失敗時に Media Foundation の参照カウントが残るのを修正する
+  - @melpon
+- [FIX] PipeWire バックエンドで pw_init に対する pw_deinit が呼ばれずリソースが残るのを修正する
+  - @melpon
+- [FIX] PipeWire でデバイスのフォーマット列挙が常に空だったのを修正する
+  - fps は本修正では仮値 (1.0 / 30.0) で埋まり、choice 形式の正確な fps 抽出は別途対応
+  - @melpon
+- [FIX] PipeWire でキャプチャ開始時にストリームエラー検出漏れで無限ループするのを修正し、フォーマット指定を choice ベースの範囲指定に変更して交渉成功率を向上させた
+  - @melpon
 
 ### misc
 

@@ -2,7 +2,7 @@
 
 - Priority: Medium
 - Created: 2026-06-15
-- Completed: {YYYY-MM-DD}
+- Completed: 2026-06-17
 - Model: Opus 4.7
 - Branch: feature/fix-readme-raw-player-feature
 - Polished: 2026-06-15
@@ -111,4 +111,5 @@ README / `examples/README.md` / `examples/camera_preview.rs` の案内コマン�
 
 ## 解決方法
 
-{完了時に記入}
+`README.md` の `camera_preview` セクションから `--features raw-player` を削除し、説明文の `` `raw-player` feature が必要。`` も削除した。
+`examples/README.md` と `examples/camera_preview.rs` は既に正しいコマンドを案内していたため変更不要。

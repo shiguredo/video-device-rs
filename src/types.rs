@@ -109,6 +109,10 @@ impl PixelBuffer {
         #[cfg(not(enable_avf))]
         {
             // Linux では Drop で CFRelease しないため、非 NULL を保持するとリークしうる。契約上 NULL のみ。
+            debug_assert!(
+                ptr.is_null(),
+                "non-null PixelBuffer pointer is not supported outside enable_avf"
+            );
             None
         }
     }
@@ -154,7 +158,7 @@ impl PartialEq for PixelBuffer {
 
 impl Eq for PixelBuffer {}
 
-// Core Foundation の参照カウントはスレッドセーフで、保持しているのは不透明ポインタのみ。
+// Core Foundation の参照カウントはスレッドセーフ。
 unsafe impl Send for PixelBuffer {}
 
 /// ビデオデバイスが対応するフォーマット

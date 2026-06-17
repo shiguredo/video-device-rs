@@ -161,11 +161,11 @@ cargo run --example device_info
 
 ### カメラプレビュー
 
-カメラ映像をキャプチャして raw-player でプレビュー表示する。`raw-player` feature が必要。
+カメラ映像をキャプチャして raw-player でプレビュー表示する。
 
 ```bash
-cargo run --features raw-player --example camera_preview
-cargo run --features raw-player --example camera_preview -- --resolution 1080p --fps 60
+cargo run --example camera_preview
+cargo run --example camera_preview -- --resolution 1080p --fps 60
 ```
 
 ## ライセンス
