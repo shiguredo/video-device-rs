@@ -469,15 +469,10 @@ unsafe fn process_sample(
         };
 
         let mut data_ptr: *mut u8 = ptr::null_mut();
-        let mut max_length: u32 = 0;
         let mut current_length: u32 = 0;
 
         if buffer
-            .Lock(
-                &mut data_ptr,
-                Some(&mut max_length),
-                Some(&mut current_length),
-            )
+            .Lock(&mut data_ptr, None, Some(&mut current_length))
             .is_err()
         {
             return;
@@ -570,9 +565,7 @@ unsafe fn process_sample(
                 }
             }
             PixelFormat::Mjpeg => {
-                // 本分岐に到達するのはバグ。pixel_format_to_guid(Mjpeg) = None により
-                // get_configured_format で UnsupportedPixelFormat(Mjpeg) が先に返るため。
-                // 万一到達しても安静にドロップせず、明示的に異常系として扱う。
+                // pixel_format_to_guid(Mjpeg) = None で create_source_reader が UnsupportedPixelFormat を返すため到達しない
                 return;
             }
             PixelFormat::Unknown(_) => return,

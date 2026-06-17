@@ -21,7 +21,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(enable_default_mf)");
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let mut enable_default_count = 0;
-    match env::var("CARGO_CFG_TARGET_OS").unwrap().as_str() {
+    match target_os.as_str() {
         "macos" => {
             if env::var("CARGO_FEATURE_AVF").is_ok() {
                 println!("cargo::rustc-cfg=enable_avf");
@@ -162,7 +162,6 @@ fn generate_bindings(builder: Builder, out_file: &str, out_dir: &Path) {
         .allowlist_type("VideoSession")
         .allowlist_type("VideoFormatEntry")
         .allowlist_type("FrameCallback")
-        .allowlist_var("VIDEO_PIXEL_FORMAT_.*")
         .derive_default(true)
         .derive_debug(true)
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
