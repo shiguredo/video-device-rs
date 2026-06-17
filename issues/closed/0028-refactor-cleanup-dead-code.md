@@ -2,7 +2,7 @@
 
 - Priority: Low
 - Created: 2026-06-15
-- Completed: {YYYY-MM-DD}
+- Completed: 2026-06-17
 - Model: Opus 4.7
 - Branch: feature/refactor-cleanup-dead-code
 - Polished: 2026-06-15
@@ -170,4 +170,10 @@ A 〜 F の 6 項目を **1 つのコミットにまとめて** 修正する。`
 
 ## 解決方法
 
-{完了時に記入}
+- A: `src/capture_mf.rs` の未使用 `max_length` 変数を削除し、`Lock` 第 2 引数を `None` に変更
+- B: `src/capture_mf.rs` の `PixelFormat::Mjpeg` 分岐のコメントを 1 行に短縮
+- C: `src/types.rs` の `from_retained_ptr` Linux 側分岐に `debug_assert!` を追加
+- D: `build.rs` の `target_os` 重複 `env::var` フェッチを既存束縛 `target_os.as_str()` に統一
+- E: `build.rs` の未使用 `allowlist_var("VIDEO_PIXEL_FORMAT_.*")` 行を削除
+- F: `src/types.rs` の `unsafe impl Send for PixelBuffer` のコメントを 1 行に短縮
+- `CHANGES.md` の `### misc` にエントリを追記
