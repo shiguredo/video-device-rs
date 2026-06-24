@@ -151,7 +151,7 @@ impl FfiDeviceListImpl {
         // SAFETY: C 側が出力パラメータに有効なポインタを書き込むことを期待する。
         // devices_ptr が NULL でない場合、呼び出し側が free_devices で解放する責任を負う。
         let ret = unsafe { (ops.enumerate_devices)(&mut devices_ptr, &mut count) };
-        if ret < 0 || devices_ptr.is_null() {
+        if ret < 0 {
             return Err(Error::DeviceAccessDenied);
         }
 
