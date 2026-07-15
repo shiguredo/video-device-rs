@@ -140,6 +140,10 @@ pub fn start(&mut self) -> Result<()> {
 
 - `eprintln!` による stderr 出力で十分か、それとも `log` クレート等のログライブラリ依存を追加するか、設計判断に議論の余地があるため pending とする
 
+## reopened にした理由
+
+案 B を採用して実装する。キャプチャスレッド panic 後は `eprintln!` に加え、再 `start` で `Error::CaptureFaulted` を返す。`log` クレートは依存ゼロ方針のため採用しない。`catch_unwind` は採用しない (0023 Won't Fix)。
+
 ## 解決方法
 
 {完了時に記入}
