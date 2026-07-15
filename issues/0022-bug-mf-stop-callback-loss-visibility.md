@@ -2,7 +2,7 @@
 
 - Priority: High
 - Created: 2026-06-15
-- Completed: {YYYY-MM-DD}
+- Completed: 2026-07-15
 - Model: Opus 4.7
 - Branch: feature/fix-mf-stop-callback-loss-visibility
 - Polished: 2026-06-15
@@ -146,4 +146,14 @@ pub fn start(&mut self) -> Result<()> {
 
 ## 解決方法
 
-{完了時に記入}
+案 B で実装した。`catch_unwind` は採用せず (0023 Won't Fix)、Windows Media Foundation ではパニック後の再 `start` をエラー化する。
+
+### 実装内容
+
+1. `Error::CaptureFaulted` を追加し、キャプチャスレッド panic 後の再 `start` で返す
+2. `MfCaptureImpl::start` で `running` 判定を `callback.take()` より先にし、callback 不在時は `Err(CaptureFaulted)` を返す
+3. `MfCaptureImpl::stop` で `handle.join() == Err` のとき英語の `eprintln!` ログを出す
+4. `VideoCapture::start` / `stop` の rustdoc、`lib.rs`、README に panic 契約と `CaptureFaulted` を明記する
+5. `CHANGES.md` の `## develop` に `[CHANGE]` エントリを追加する
+
+`log` クレートは依存ゼロ方針のため追加していない。
