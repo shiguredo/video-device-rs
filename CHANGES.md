@@ -23,6 +23,8 @@
   - @voluntas
 - [CHANGE] `VideoDevice`, `VideoDeviceList`, `VideoCapture` を構造体から enum に変更する
   - @melpon
+- [CHANGE] Windows でキャプチャスレッドが panic したあと再 `start` すると `Error::CaptureFaulted` を返すようにし、stderr にもログを出す
+  - @voluntas
 - [FIX] `VideoCapture`, `PixelBuffer` はスレッドセーフな構造体ではないので Sync を削除する
   - @melpon
 - [FIX] V4L2 バックエンドで I420 フォーマットの場合にコールバックが発生しないのを修正する

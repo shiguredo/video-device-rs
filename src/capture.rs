@@ -112,6 +112,9 @@ impl VideoCapture {
     ///
     /// PipeWire バックエンドでは内部でストリーミング状態になるまでブロックする。
     /// 他バックエンドでは即座に復帰する。
+    ///
+    /// Windows (Media Foundation) でキャプチャスレッドが panic したあとに再 `start` すると
+    /// [`crate::Error::CaptureFaulted`] を返す。その場合は新しい [`VideoCapture`] を構築し直すこと。
     pub fn start(&mut self) -> Result<()> {
         match &mut self.0 {
             #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
@@ -125,6 +128,10 @@ impl VideoCapture {
     ///
     /// ブロッキング: 全バックエンドでキャプチャスレッド/コールバックの完了を待機してから復帰する。
     /// running でない状態の場合は no-op。
+    ///
+    /// Windows (Media Foundation) でキャプチャスレッドが panic していた場合、stderr に英語の
+    /// エラーログを出力する。その後の再 [`start`](Self::start) は
+    /// [`crate::Error::CaptureFaulted`] になる。
     pub fn stop(&mut self) {
         match &mut self.0 {
             #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]

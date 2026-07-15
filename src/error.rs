@@ -14,6 +14,8 @@ pub enum Error {
     ComInitFailed,
     /// C 側が返した文字列が有効な UTF-8 でない
     InvalidUtf8(&'static str),
+    /// キャプチャスレッドが panic するなどして再 start 不能になった
+    CaptureFaulted,
 }
 
 impl std::fmt::Display for Error {
@@ -30,6 +32,12 @@ impl std::fmt::Display for Error {
             Error::InvalidCaptureConfig(msg) => write!(f, "invalid capture config: {}", msg),
             Error::ComInitFailed => write!(f, "COM initialization failed"),
             Error::InvalidUtf8(field) => write!(f, "invalid UTF-8 in {}", field),
+            Error::CaptureFaulted => {
+                write!(
+                    f,
+                    "capture is faulted and cannot be restarted (capture thread panicked)"
+                )
+            }
         }
     }
 }

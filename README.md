@@ -160,6 +160,8 @@ capture.stop();
 呼び出し後も保持する場合は `VideoFrame::to_owned()` でコピーしてください。
 キャプチャのコールバック内から `stop()` を呼ばないでください。
 
+フレームコールバックは panic してはなりません。panic した場合、macOS / Linux (FFI) ではプロセスが abort しうる一方、Windows (Media Foundation) ではキャプチャスレッドが終了し、その後の再 `start` が `Error::CaptureFaulted` になります。
+
 ## サンプル
 
 ### デバイス一覧

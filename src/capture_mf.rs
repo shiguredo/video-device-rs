@@ -62,13 +62,17 @@ impl MfCaptureImpl {
     ///
     /// 冪等: 既に running 状態であれば `Ok(())` を返す。
     /// `stop` 後の再 `start` は許容する。
+    /// キャプチャスレッドが panic したあとは `Error::CaptureFaulted` を返す。
     pub fn start(&mut self) -> Result<()> {
         let session = self.session.as_ref().ok_or(Error::SessionStartFailed)?;
-        let callback = self.callback.take();
-
-        if callback.is_none() || self.running.load(Ordering::Acquire) {
+        // 既に running なら callback はスレッド側にある。take 前に判定し、生存中の callback を落とさない
+        if self.running.load(Ordering::Acquire) {
             return Ok(());
         }
+        // 正常な stop 後は callback が戻っている。panic 後は None のままなので再 start 不能
+        let Some(callback) = self.callback.take() else {
+            return Err(Error::CaptureFaulted);
+        };
 
         self.running.store(true, Ordering::Release);
 
@@ -88,7 +92,7 @@ impl MfCaptureImpl {
                 width,
                 height,
                 running_clone,
-                callback.unwrap(),
+                callback,
             )
         });
 
@@ -101,15 +105,26 @@ impl MfCaptureImpl {
     ///
     /// ブロッキング: キャプチャスレッド/コールバックの完了を待機してから復帰する。
     /// running でない状態の場合は no-op。
+    /// キャプチャスレッドが panic した場合は stderr にログを出し、callback は回収しない。
     pub fn stop(&mut self) {
-        if self.running.load(Ordering::Acquire) {
-            self.running.store(false, Ordering::Release);
+        if !self.running.load(Ordering::Acquire) {
+            return;
+        }
+        self.running.store(false, Ordering::Release);
 
-            // スレッドの終了を待機し、コールバックを回収する
-            if let Some(handle) = self.capture_thread.take()
-                && let Ok(callback) = handle.join()
-            {
-                self.callback = Some(callback);
+        // スレッドの終了を待機し、コールバックを回収する
+        if let Some(handle) = self.capture_thread.take() {
+            match handle.join() {
+                Ok(callback) => {
+                    self.callback = Some(callback);
+                }
+                Err(_) => {
+                    // panic でスレッドが終了した経路。callback は永久消失し、
+                    // その後の再 start は CaptureFaulted になるため、診断用にログを残す
+                    eprintln!(
+                        "capture thread panicked; callback is permanently lost and capture cannot be restarted"
+                    );
+                }
             }
         }
     }
