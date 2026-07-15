@@ -21,7 +21,7 @@ name = "camera_preview"
 # 依存ゼロの軽量 JSON パーサ／シリアライザ。サンプル用途で利用
 nojson = "0.3"
 # camera_preview サンプルで生フレームを表示するためのプレビュー用クレート
-raw_player = "=2026.1.0"
+raw_player = "=2026.2.0-canary.0"
 
 [workspace]
 members = ["pbt"]
