@@ -2,7 +2,7 @@
 
 - Priority: High
 - Created: 2026-06-15
-- Completed: {YYYY-MM-DD}
+- Completed: 2026-07-15
 - Model: Opus 4.7
 - Branch: feature/fix-user-callback-panic-safety
 - Polished: 2026-06-15
@@ -153,4 +153,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 ## 解決方法
 
-{完了時に記入}
+本 issue が提案する `catch_unwind` によるユーザコールバック panic の吸収は **実施しない** (Won't Fix)。
+
+### 方針
+
+- ユーザフレームコールバックの panic は利用者側の契約違反・バグとみなす
+- `catch_unwind` で回復すると、破壊された内部状態のままキャプチャが継続しうる
+- パニックを握りつぶさず伝播させる方が、バグ修正を促すうえで安全である
+- プロジェクト規約 (`shiguredo-rust`) でも `catch_unwind` は原則禁止であり、本ケースでは例外許可しない
+
+### バックエンドごとの帰結 (既知の挙動)
+
+- macOS / Linux (FFI): `extern "C"` 境界を越える unwind によりプロセスが abort しうる
+- Windows (Media Foundation): キャプチャスレッドが終了し、`VideoCapture` の再 `start` が不能になりうる (沈黙障害の可視化・エラー化は issue 0022 で扱う)
+
+### 利用者への契約
+
+フレームコールバックは panic してはならない。これは `src/video.h` の C ABI コメントと同一の契約を、Rust 公開 API でも前提とする。公開ドキュメントへの明記は別途行う。
