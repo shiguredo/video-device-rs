@@ -22,27 +22,38 @@ macOS / Linux / Windows に対応したビデオデバイスライブラリで�
 
 ## 対応プラットフォーム
 
-- macOS: AVFoundation
-- Linux: V4L2 (デフォルト) / PipeWire
-- Windows: Media Foundation
+- macOS: AVFoundation (`avf`)
+- Linux: V4L2 (`v4l2`, デフォルト) / PipeWire (`pipewire`)
+- Windows: Media Foundation (`mf`)
 
-## Linux の feature
+## feature
 
-Linux では `v4l2` と `pipewire` の 2 つの feature を指定できます。
-`v4l2` を指定した場合はバックエンドとして V4L2 を利用可能になり、`pipewire` を指定した場合はバックエンドとして PipeWire が利用可能になります。
-これらは両方のフラグを指定することも可能です。
+バックエンドは feature flag で有効化します。
+`VideoCapture::new()` と `VideoDeviceList::enumerate()` が使う既定バックエンドは、各プラットフォームの `default-*` feature で選びます。
+同一プラットフォームで `default-*` を複数指定するとコンパイルエラーになります。
 
-更に `default-v4l2` と `default-pipewire` の feature も指定可能です。
-これはどのバックエンドを既定値にするかを指定する feature で、`VideoCapture::new()` や `VideoDeviceList::enumerate()` で利用するバックエンドが `default-*` で指定したものに切り替わります。
-`default-v4l2` と `default-pipewire` の両方の feature を指定した場合はコンパイルエラーになります。
-デフォルトでは `default-v4l2` feature を指定しています。
+デフォルトの feature は `default-avf` / `default-v4l2` / `default-mf` です。
+ビルド対象 OS 以外の feature は無視されます。
 
-`default-v4l2` が指定されている場合でも、`pipewire` が有効であれば `VideoCapture::new_pipewire()` や `VideoDeviceList::enumerate_pipewire()` を使うことで PipeWire のバックエンドを利用可能です。
+| プラットフォーム | バックエンド有効化 | 既定バックエンド |
+| --- | --- | --- |
+| macOS | `avf` | `default-avf` (`avf` を含む) |
+| Linux | `v4l2` / `pipewire` | `default-v4l2` (`v4l2` を含む) または `default-pipewire` (`pipewire` を含む) |
+| Windows | `mf` | `default-mf` (`mf` を含む) |
+
+`default-*` で選ばれていないバックエンドでも、feature が有効なら明示 API で利用できます。
+
+- 列挙: `VideoDeviceList::enumerate_avf()` / `enumerate_v4l2()` / `enumerate_pipewire()` / `enumerate_mf()`
+- キャプチャ: `VideoCapture::new_avf()` / `new_v4l2()` / `new_pipewire()` / `new_mf()`
+
+Linux では `v4l2` と `pipewire` を同時に有効化できます。
+両方有効なとき、既定は `default-v4l2` または `default-pipewire` のどちらか一方だけを指定します。
 
 ### `mjpeg` feature
 
 Linux (V4L2) で MJPEG フォーマットのパススルーキャプチャを利用可能にする feature です。
-`pixel_format = Some(PixelFormat::Mjpeg)` を指定することで MJPEG カメラから JPEG ペイロードを直接受け取れます。V4L2 バックエンドが必要なため、`mjpeg` feature は自動的に `v4l2` を有効化します。
+`pixel_format = Some(PixelFormat::Mjpeg)` を指定することで、MJPEG カメラから JPEG ペイロードを直接受け取れます。
+V4L2 バックエンドが必要なため、`mjpeg` feature は自動的に `v4l2` を有効化します。
 
 MJPEG 対応外の環境 (macOS / Windows / PipeWire) で `PixelFormat::Mjpeg` を指定すると `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` を返します。
 
@@ -62,6 +73,7 @@ cargo build -p shiguredo_video_device --features mjpeg
 V4L2 バックエンド (デフォルト):
 
 追加の依存パッケージは不要です。
+ビデオデバイスへのアクセス権限については [docs/LINUX.md](docs/LINUX.md) を参照してください。
 
 PipeWire バックエンド:
 
@@ -76,12 +88,15 @@ sudo apt install libpipewire-0.3-dev
 ## ビルド
 
 ```bash
-# デフォルト (macOS / Linux V4L2 / Windows)
+# デフォルト (macOS AVFoundation / Linux V4L2 / Windows Media Foundation)
 cargo build -p shiguredo_video_device
 
-# Linux PipeWire バックエンド
-#（デフォルトで default-v4l2 が指定されているので、デフォルトを PipeWire にするなら --no-default-features を指定する必要がある）
+# Linux で既定バックエンドを PipeWire にする
+#（デフォルトで default-v4l2 が有効なので、--no-default-features が必要）
 cargo build -p shiguredo_video_device --no-default-features --features default-pipewire
+
+# Linux で V4L2 と PipeWire の両方を有効化し、既定は V4L2 のままにする
+cargo build -p shiguredo_video_device --features pipewire
 ```
 
 ## 使い方
@@ -91,9 +106,9 @@ cargo build -p shiguredo_video_device --no-default-features --features default-p
 ```rust
 use shiguredo_video_device::VideoDeviceList;
 
-// デバイス一覧を取得
+// デバイス一覧を取得 (既定バックエンド)
 let device_list = VideoDeviceList::enumerate()?;
-for device in device_list {
+for device in &device_list {
     println!("デバイス: {} (ID: {})", device.name()?, device.unique_id()?);
 
     // 対応フォーマット一覧
@@ -122,7 +137,7 @@ let config = VideoCaptureConfig {
     pixel_format: None, // 未指定ならデフォルト選択。Some(shiguredo_video_device::PixelFormat::Yuy2) のように指定可能
 };
 
-// コールバックでフレームを受信
+// コールバックでフレームを受信 (既定バックエンド)
 let mut capture = VideoCapture::new(config, |frame| {
     println!(
         "フレーム: {}x{} {} timestamp={}us",
@@ -140,6 +155,10 @@ capture.start()?;
 // キャプチャ停止
 capture.stop();
 ```
+
+コールバックに渡される `VideoFrame` のスライスは、その呼び出し中にのみ有効です。
+呼び出し後も保持する場合は `VideoFrame::to_owned()` でコピーしてください。
+キャプチャのコールバック内から `stop()` を呼ばないでください。
 
 ## サンプル
 
@@ -164,6 +183,7 @@ cargo run --example device_info
 カメラ映像をキャプチャして raw-player でプレビュー表示する。
 
 ```bash
+cargo run --example camera_preview -- --list-devices
 cargo run --example camera_preview
 cargo run --example camera_preview -- --resolution 1080p --fps 60
 ```
