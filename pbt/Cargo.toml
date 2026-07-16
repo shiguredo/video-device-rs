@@ -5,6 +5,6 @@ edition = "2024"
 publish = false
 
 [dev-dependencies]
-shiguredo_video_device = { path = "..", default-features = false }
 # PBT (Property-Based Testing) 用
 proptest = "1.11"
+shiguredo_video_device = { path = "..", default-features = false }

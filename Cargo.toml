@@ -11,6 +11,9 @@ license = "Apache-2.0"
 build = "build.rs"
 include = ["/LICENSE", "/README.md", "/build.rs", "/src/**"]
 
+[workspace]
+members = ["pbt"]
+
 [[example]]
 name = "camera_preview"
 
@@ -23,9 +26,6 @@ nojson = "0.3"
 # camera_preview サンプルで生フレームを表示するためのプレビュー用クレート
 raw_player = "=2026.2.0-canary.0"
 
-[workspace]
-members = ["pbt"]
-
 [build-dependencies]
 # C/C++ ヘッダから Rust の FFI バインディングを自動生成する
 bindgen = "0.72"
@@ -34,25 +34,29 @@ cc = "1.2"
 # Linux などで pkg-config を介してシステムライブラリ (V4L2 等) を検出する
 pkg-config = "0.3"
 
-[target.'cfg(windows)'.dependencies]
+[target."cfg(windows)".dependencies]
 # Microsoft 公式の Win32 API バインディング。必要な機能だけを feature で有効化する
-windows = { version = "0.62", optional = true, features = [
-  # HRESULT・HANDLE・BOOL などの Win32 基本型
-  "Win32_Foundation",
-  # Media Foundation のカメラキャプチャ関連 API
-  "Win32_Media_MediaFoundation",
-  # COM の初期化・インターフェース呼び出し基盤
-  "Win32_System_Com",
-] }
+windows = {
+  version = "0.62",
+  features = [
+    # HRESULT・HANDLE・BOOL などの Win32 基本型
+    "Win32_Foundation",
+    # Media Foundation のカメラキャプチャ関連 API
+    "Win32_Media_MediaFoundation",
+    # COM の初期化・インターフェース呼び出し基盤
+    "Win32_System_Com",
+  ],
+  optional = true
+}
 
 [features]
-default = ["default-v4l2", "default-avf", "default-mf"]
+default = ["default-avf", "default-mf", "default-v4l2"]
 avf = []
-mf = ["dep:windows"]
-pipewire = []
-v4l2 = []
 default-avf = ["avf"]
 default-mf = ["mf"]
 default-pipewire = ["pipewire"]
-mjpeg = ["v4l2"]
 default-v4l2 = ["v4l2"]
+mf = ["dep:windows"]
+mjpeg = ["v4l2"]
+pipewire = []
+v4l2 = []
