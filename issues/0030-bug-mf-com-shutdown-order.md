@@ -5,7 +5,7 @@
 - Completed: {YYYY-MM-DD}
 - Model: qwen3.8-max-preview
 - Branch: feature/fix-mf-com-shutdown-order
-- Polished: {YYYY-MM-DD}
+- Polished: 2026-07-21
 
 ## 目的
 
@@ -42,26 +42,50 @@ if result.is_err() {
 
 `com_guard` をクロージャの外で保持し、エラーパスで `MFShutdown()` の **後に** drop されるようにする。
 
+採用案: クロージャの戻り値を `Result<SessionData>` にし、`Self` の構築をクロージャ外で行う。これにより `com_guard` はクロージャに捕捉されず、Err 時は `MFShutdown()` → `com_guard` drop の順序が自然に保証される。`config` / `callback` もクロージャ外で `Self` に move できる。
+
 ```rust
 let com_guard = CoInitGuard::new()?;
 MFStartup(...)?;
 
-let result: Result<Self> = (|| -> Result<Self> {
-    // com_guard を move しない。借用のみ
+// クロージャは SessionData の構築のみ。com_guard / callback は捕捉しない（config は参照で借用）
+let result: Result<SessionData> = (|| -> Result<SessionData> {
+    let media_source = activate_device(config.device_id.as_deref())?;
+    let source_reader = create_source_reader(...)?;
+    let (pixel_format, width, height) = get_configured_format(&source_reader)?;
     // ...
-    Ok(Self { ..., _com_guard: /* ここだけ move が必要 */ })
+    Ok(SessionData { ... })
 })();
+
+match result {
+    Ok(session) => Ok(Self {
+        session: Some(session),
+        running: Arc::new(AtomicBool::new(false)),
+        callback: Some(Box::new(callback)),
+        capture_thread: None,
+        config,
+        _com_guard: com_guard,
+    }),
+    Err(e) => {
+        let _ = MFShutdown();
+        Err(e)
+    }
+}
 ```
-
-`Ok` パスでは `com_guard` を `Self` に move する必要があるため、クロージャの構造を見直す。具体的には:
-
-1. クロージャを `move` にせず、構築ロジックを通常のブロックに展開する
-2. `Ok` 時に `com_guard` を `Self` に move し、`Err` 時は `MFShutdown()` の後に `com_guard` が drop される順序を保証する
-3. または `com_guard` を `Option<CoInitGuard>` にし、`Ok` 時に `take()` で取り出す
 
 ### 採用しない案
 
+- クロージャを `move` にせず構築ロジックを通常のブロックに展開する: 非 move クロージャでは `config` / `callback` を `Self` に move できないため、そのままではコンパイルが通らない
+- `com_guard` を `Option<CoInitGuard>` にし `take()` で取り出す: `move` クロージャと組み合わせると Option 全体がクロージャに捕捉され、Err 時にクロージャ drop で `Some(CoInitGuard)` が drop されるため機能しない
 - `MFShutdown()` を `CoInitGuard::drop` の前に呼ぶことを型で強制する: 複雑すぎる。順序をコードで保証すれば十分
+
+### 後方互換への影響
+
+なし。`MfCaptureImpl::new()` の外部 API（引数・戻り値）は不変。内部の解放順序のみの修正。
+
+### 他 issue との関係
+
+0037（`capture_mf.rs` の状態管理強化）と同じファイルを触るが、変更箇所が異なる（0030 は `new()`、0037 は `capture_thread_func` と `Drop`）。マージ順序の制約はない。
 
 ## 完了条件
 
