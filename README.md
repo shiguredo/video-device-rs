@@ -234,10 +234,6 @@ cargo run --example camera_preview
 cargo run --example camera_preview -- --resolution 1080p --fps 60
 ```
 
-## 変更履歴
-
-[CHANGES.md](CHANGES.md) を参照してください。
-
 ## ライセンス
 
 Apache License 2.0
