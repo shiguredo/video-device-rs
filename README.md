@@ -19,6 +19,19 @@ Please read <https://github.com/shiguredo/oss> before use.
 ## 概要
 
 macOS / Linux / Windows に対応したビデオデバイスライブラリです。
+カメラの列挙とフレームキャプチャを、プラットフォーム共通の Rust API で提供します。
+
+## 特徴
+
+- クロスプラットフォームのカメラ列挙 / キャプチャ API
+- バックエンドを feature flag で選択可能
+  - macOS: AVFoundation (`avf`)
+  - Linux: V4L2 (`v4l2`) / PipeWire (`pipewire`)
+  - Windows: Media Foundation (`mf`)
+- コールバックによるフレーム受信
+- ピクセルフォーマット選択 (`NV12` / `YUY2` / `I420` / `MJPEG`)
+- Linux (V4L2) での MJPEG パススルーキャプチャ (`mjpeg` feature)
+- macOS / Linux はランタイム依存なし (Windows は `mf` feature 有効時に `windows` クレートを利用)
 
 ## 対応プラットフォーム
 
@@ -26,11 +39,17 @@ macOS / Linux / Windows に対応したビデオデバイスライブラリで�
 - Linux: V4L2 (`v4l2`, デフォルト) / PipeWire (`pipewire`)
 - Windows: Media Foundation (`mf`)
 
+Linux のパーミッションや PipeWire の注意点は [docs/LINUX.md](docs/LINUX.md) を参照してください。
+
+## 動作要件
+
+- Rust 1.88 以上 (`rust-version = "1.88"`)
+
 ## feature
 
 バックエンドは feature flag で有効化します。
 `VideoCapture::new()` と `VideoDeviceList::enumerate()` が使う既定バックエンドは、各プラットフォームの `default-*` feature で選びます。
-同一プラットフォームで `default-*` を複数指定するとコンパイルエラーになります。
+同一プラットフォームで `default-*` を複数指定するとビルドエラーになります。
 
 デフォルトの feature は `default-avf` / `default-v4l2` / `default-mf` です。
 ビルド対象 OS 以外の feature は無視されます。
@@ -61,6 +80,18 @@ MJPEG 対応外の環境 (macOS / Windows / PipeWire) で `PixelFormat::Mjpeg` �
 # MJPEG 対応を有効化してビルド
 cargo build -p shiguredo_video_device --features mjpeg
 ```
+
+## 対応ピクセルフォーマット
+
+| `PixelFormat` | 説明 | 備考 |
+| --- | --- | --- |
+| `Nv12` | YUV 4:2:0 semi-planar | |
+| `Yuy2` | YUV 4:2:2 packed | |
+| `I420` | YUV 4:2:0 planar | |
+| `Mjpeg` | Motion JPEG (圧縮 JPEG ペイロード) | V4L2 + `mjpeg` feature のみ。デコードは利用者の責務 |
+| `Unknown(u32)` | 未知の FourCC | キャプチャ要求には使えません |
+
+ネゴシエーション結果が未知の FourCC になった場合、実装によってはユーザーコールバックにフレームが渡らないことがあります。
 
 ## ビルド要件
 
@@ -156,11 +187,24 @@ capture.start()?;
 capture.stop();
 ```
 
+`VideoCaptureConfig` の注意点:
+
+- Windows では `width` / `height` / `fps` は正の整数である必要があります。違反すると `Error::InvalidCaptureConfig` を返します
+- `pixel_format: None` の場合はバックエンドがデフォルト選択します
+
+キャプチャのライフサイクル:
+
+- `start()` は冪等です。既に running なら `Ok(())` を返します
+- `stop()` はブロッキングです。キャプチャスレッド / コールバックの完了を待ってから復帰します
+- `stop()` 後の再 `start()` は許容します
+- PipeWire では `start()` がストリーミング状態になるまでブロックします
+
 コールバックに渡される `VideoFrame` のスライスは、その呼び出し中にのみ有効です。
 呼び出し後も保持する場合は `VideoFrame::to_owned()` でコピーしてください。
-キャプチャのコールバック内から `stop()` を呼ばないでください。
+キャプチャのコールバック内から `stop()` を呼ばないでください。特に Windows ではデッドロックしえます。
 
 フレームコールバックは panic してはなりません。panic した場合、macOS / Linux (FFI) ではプロセスが abort しうる一方、Windows (Media Foundation) ではキャプチャスレッドが終了し、その後の再 `start` が `Error::CaptureFaulted` になります。
+`CaptureFaulted` になった場合は、同じ `VideoCapture` を再利用せず新しく構築し直してください。
 
 ## サンプル
 
@@ -189,6 +233,10 @@ cargo run --example camera_preview -- --list-devices
 cargo run --example camera_preview
 cargo run --example camera_preview -- --resolution 1080p --fps 60
 ```
+
+## 変更履歴
+
+[CHANGES.md](CHANGES.md) を参照してください。
 
 ## ライセンス
 
