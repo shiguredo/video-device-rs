@@ -1,294 +1,153 @@
-use std::ffi::CString;
-use std::ptr::NonNull;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+//! ビデオキャプチャの定義。
+//!
+//! バックエンドに依存しない形でキャプチャの開始・停止・設定取得を提供する
+//! [`VideoCapture`] を提供する。
 
-use crate::error::{Error, Result};
-use crate::ffi;
-use crate::types::{CaptureContext, PixelBuffer, PixelFormat, VideoCaptureConfig, VideoFrame};
+use crate::error::Result;
+use crate::types::{VideoCaptureConfig, VideoFrame};
 
-pub struct VideoCapture {
-    session: Option<NonNull<ffi::VideoSession>>,
-    context: Option<Arc<CaptureContext>>,
-    config: VideoCaptureConfig,
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+use crate::capture_ffi::FfiCaptureImpl;
+
+#[cfg(enable_mf)]
+use crate::capture_mf::MfCaptureImpl;
+
+/// ビデオキャプチャ。
+///
+/// キャプチャの開始・停止・設定取得を提供する。
+pub struct VideoCapture(VideoCaptureInner);
+
+enum VideoCaptureInner {
+    /// macOS / Linux の FFI ベースキャプチャ。
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+    Ffi(FfiCaptureImpl),
+    /// Windows Media Foundation ベースキャプチャ。
+    #[cfg(enable_mf)]
+    Mf(MfCaptureImpl),
 }
 
 impl VideoCapture {
+    /// デフォルトバックエンドでキャプチャを構築する。
+    ///
+    /// この時点ではキャプチャスレッドは起動せず、`start()` が呼ばれるまで待機する。
+    /// ビルド時に選択されたデフォルトバックエンドを自動的に使用する。
+    #[cfg(any(
+        enable_default_avf,
+        enable_default_v4l2,
+        enable_default_pipewire,
+        enable_default_mf
+    ))]
     pub fn new<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
     where
-        F: Fn(VideoFrame<'_>) + Send + Sync + 'static,
+        F: Fn(VideoFrame<'_>) + Send + 'static,
     {
-        let requested_pixel_format = match config.pixel_format {
-            Some(pixel_format @ PixelFormat::Unknown(_)) => {
-                return Err(Error::UnsupportedPixelFormat(pixel_format));
-            }
-            Some(pixel_format) => pixel_format.to_raw(),
-            None => 0,
-        };
-
-        let device_id_cstr = config.device_id.as_ref().map(|s| CString::new(s.as_str()));
-        let device_id_ptr = match &device_id_cstr {
-            Some(Ok(cstr)) => cstr.as_ptr(),
-            Some(Err(_)) => return Err(Error::NullPointer("device_id contains null byte")),
-            None => std::ptr::null(),
-        };
-
-        let session = unsafe {
-            ffi::video_session_create(
-                device_id_ptr,
-                config.width,
-                config.height,
-                config.fps,
-                requested_pixel_format,
-            )
-        };
-
-        let session = NonNull::new(session).ok_or(Error::SessionCreateFailed)?;
-
-        let context = Arc::new(CaptureContext {
-            callback: Box::new(callback),
-            running: AtomicBool::new(false),
-        });
-
-        Ok(Self {
-            session: Some(session),
-            context: Some(context),
-            config,
-        })
-    }
-
-    pub fn start(&mut self) -> Result<()> {
-        let session = self.session.ok_or(Error::SessionStartFailed)?;
-        let context = self.context.as_ref().ok_or(Error::SessionStartFailed)?;
-
-        if context.running.load(Ordering::Acquire) {
-            return Ok(());
-        }
-
-        let context_ptr = Arc::as_ptr(context) as *mut std::ffi::c_void;
-        let ret = unsafe {
-            ffi::video_session_start(session.as_ptr(), Some(frame_callback), context_ptr)
-        };
-
-        if ret < 0 {
-            return Err(Error::SessionStartFailed);
-        }
-
-        context.running.store(true, Ordering::Release);
-        Ok(())
-    }
-
-    pub fn stop(&mut self) {
-        if let Some(context) = &self.context
-            && context.running.load(Ordering::Acquire)
+        #[cfg(enable_default_avf)]
         {
-            if let Some(session) = self.session {
-                unsafe { ffi::video_session_stop(session.as_ptr()) };
-            }
-            context.running.store(false, Ordering::Release);
+            Self::new_avf(config, callback)
+        }
+        #[cfg(enable_default_v4l2)]
+        {
+            Self::new_v4l2(config, callback)
+        }
+        #[cfg(enable_default_pipewire)]
+        {
+            Self::new_pipewire(config, callback)
+        }
+        #[cfg(enable_default_mf)]
+        {
+            Self::new_mf(config, callback)
         }
     }
 
+    /// macOS AVFoundation でキャプチャを構築する。
+    ///
+    /// この時点ではキャプチャスレッドは起動せず、`start()` が呼ばれるまで待機する。
+    #[cfg(enable_avf)]
+    pub fn new_avf<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+    where
+        F: Fn(VideoFrame<'_>) + Send + 'static,
+    {
+        Ok(Self(VideoCaptureInner::Ffi(FfiCaptureImpl::new_avf(
+            config, callback,
+        )?)))
+    }
+
+    /// Linux V4L2 でキャプチャを構築する。
+    #[cfg(enable_v4l2)]
+    pub fn new_v4l2<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+    where
+        F: Fn(VideoFrame<'_>) + Send + 'static,
+    {
+        Ok(Self(VideoCaptureInner::Ffi(FfiCaptureImpl::new_v4l2(
+            config, callback,
+        )?)))
+    }
+
+    /// Linux PipeWire でキャプチャを構築する。
+    #[cfg(enable_pipewire)]
+    pub fn new_pipewire<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+    where
+        F: Fn(VideoFrame<'_>) + Send + 'static,
+    {
+        Ok(Self(VideoCaptureInner::Ffi(FfiCaptureImpl::new_pipewire(
+            config, callback,
+        )?)))
+    }
+
+    /// Windows Media Foundation でキャプチャを構築する。
+    #[cfg(enable_mf)]
+    pub fn new_mf<F>(config: VideoCaptureConfig, callback: F) -> Result<Self>
+    where
+        F: Fn(VideoFrame<'_>) + Send + 'static,
+    {
+        Ok(Self(VideoCaptureInner::Mf(MfCaptureImpl::new(
+            config, callback,
+        )?)))
+    }
+
+    /// キャプチャを開始する。
+    ///
+    /// 冪等: 既に running 状態であれば `Ok(())` を返す。
+    /// `stop` 後の再 `start` は許容する。
+    ///
+    /// PipeWire バックエンドでは内部でストリーミング状態になるまでブロックする。
+    /// 他バックエンドでは即座に復帰する。
+    ///
+    /// Windows (Media Foundation) でキャプチャスレッドが panic したあとに再 `start` すると
+    /// [`crate::Error::CaptureFaulted`] を返す。その場合は新しい [`VideoCapture`] を構築し直すこと。
+    pub fn start(&mut self) -> Result<()> {
+        match &mut self.0 {
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+            VideoCaptureInner::Ffi(inner) => inner.start(),
+            #[cfg(enable_mf)]
+            VideoCaptureInner::Mf(inner) => inner.start(),
+        }
+    }
+
+    /// キャプチャを停止する。
+    ///
+    /// ブロッキング: 全バックエンドでキャプチャスレッド/コールバックの完了を待機してから復帰する。
+    /// running でない状態の場合は no-op。
+    ///
+    /// Windows (Media Foundation) でキャプチャスレッドが panic していた場合、stderr に英語の
+    /// エラーログを出力する。その後の再 [`start`](Self::start) は
+    /// [`crate::Error::CaptureFaulted`] になる。
+    pub fn stop(&mut self) {
+        match &mut self.0 {
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+            VideoCaptureInner::Ffi(inner) => inner.stop(),
+            #[cfg(enable_mf)]
+            VideoCaptureInner::Mf(inner) => inner.stop(),
+        }
+    }
+
+    /// キャプチャ設定を取得する。
     pub fn config(&self) -> &VideoCaptureConfig {
-        &self.config
-    }
-}
-
-impl Drop for VideoCapture {
-    fn drop(&mut self) {
-        self.stop();
-        if let Some(session) = self.session.take() {
-            unsafe { ffi::video_session_destroy(session.as_ptr()) };
+        match &self.0 {
+            #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+            VideoCaptureInner::Ffi(inner) => inner.config(),
+            #[cfg(enable_mf)]
+            VideoCaptureInner::Mf(inner) => inner.config(),
         }
-    }
-}
-
-// VideoCapture はプラットフォーム固有のキャプチャセッションを内部で管理し、
-// コールバックはスレッドセーフな Arc<CaptureContext> を通じて処理される
-unsafe impl Send for VideoCapture {}
-unsafe impl Sync for VideoCapture {}
-
-/// NV12 の Y / UV プレーンのバイト長を計算する。負のストライドやオーバーフロー時は None。
-fn nv12_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
-    if stride <= 0 || stride_uv <= 0 || height <= 0 {
-        return None;
-    }
-    let h = height as usize;
-    let y = (stride as usize).checked_mul(h)?;
-    let uv_h = h.div_ceil(2);
-    let uv = (stride_uv as usize).checked_mul(uv_h)?;
-    Some((y, uv))
-}
-
-/// I420 の Y / 連結 UV（U 行のあと V 行）のバイト長を計算する。
-///
-/// macOS `video_c.m` は `chromaHeight = (height + 1) / 2`、`uvSize = strideUV * chromaHeight * 2`
-/// で `calloc` し、`stride_uv` は `(int)strideUV` としてコールバックに渡す。
-/// 本関数の UV は `stride_uv * ((height + 1) / 2) * 2`（usize での切り上げ整合）であり、
-/// 偶数 `height` では `stride_uv * height` と同値、奇数 `height` では C の `uvSize` と一致する。
-/// Linux PipeWire など他経路の I420 では、連結 UV の実バイト数やストライドの解釈がこの式と一致しない場合がある。
-fn i420_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
-    if stride <= 0 || stride_uv <= 0 || height <= 0 {
-        return None;
-    }
-    let h = height as usize;
-    let y = (stride as usize).checked_mul(h)?;
-    let chroma_h = h.div_ceil(2);
-    let uv = (stride_uv as usize).checked_mul(chroma_h)?.checked_mul(2)?;
-    Some((y, uv))
-}
-
-/// YUY2 の 1 フレーム分のバイト長を計算する。
-fn yuy2_packed_frame_bytes(stride: i32, height: i32) -> Option<usize> {
-    if stride <= 0 || height <= 0 {
-        return None;
-    }
-    (stride as usize).checked_mul(height as usize)
-}
-
-extern "C" fn frame_callback(
-    user_data: *mut std::ffi::c_void,
-    data: *const u8,
-    uv_data: *const u8,
-    width: i32,
-    height: i32,
-    stride: i32,
-    stride_uv: i32,
-    pixel_format: u32,
-    timestamp_us: i64,
-    pixel_buffer: *mut std::ffi::c_void,
-) {
-    let pixel_buffer = unsafe { PixelBuffer::from_retained_ptr(pixel_buffer) };
-
-    if user_data.is_null() || data.is_null() || width <= 0 || height <= 0 {
-        return;
-    }
-
-    // SAFETY: user_data は Arc<CaptureContext> から取得したポインタ
-    // context の生存期間は VideoCapture によって保証される
-    let context = unsafe { &*(user_data as *const CaptureContext) };
-
-    let pf = PixelFormat::from_raw(pixel_format);
-
-    let frame = match pf {
-        PixelFormat::Nv12 => {
-            if uv_data.is_null() {
-                return;
-            }
-            let Some((y_size, uv_size)) = nv12_plane_sizes(stride, stride_uv, height) else {
-                return;
-            };
-
-            let y_slice = unsafe { std::slice::from_raw_parts(data, y_size) };
-            let uv_slice = unsafe { std::slice::from_raw_parts(uv_data, uv_size) };
-
-            VideoFrame {
-                data: y_slice,
-                uv_data: Some(uv_slice),
-                width,
-                height,
-                stride,
-                stride_uv,
-                pixel_format: pf,
-                timestamp_us,
-                pixel_buffer,
-            }
-        }
-        PixelFormat::I420 => {
-            if uv_data.is_null() {
-                return;
-            }
-            let Some((y_size, uv_size)) = i420_plane_sizes(stride, stride_uv, height) else {
-                return;
-            };
-
-            let y_slice = unsafe { std::slice::from_raw_parts(data, y_size) };
-            let uv_slice = unsafe { std::slice::from_raw_parts(uv_data, uv_size) };
-
-            VideoFrame {
-                data: y_slice,
-                uv_data: Some(uv_slice),
-                width,
-                height,
-                stride,
-                stride_uv,
-                pixel_format: pf,
-                timestamp_us,
-                pixel_buffer,
-            }
-        }
-        PixelFormat::Yuy2 => {
-            let Some(data_size) = yuy2_packed_frame_bytes(stride, height) else {
-                return;
-            };
-            let data_slice = unsafe { std::slice::from_raw_parts(data, data_size) };
-
-            VideoFrame {
-                data: data_slice,
-                uv_data: None,
-                width,
-                height,
-                stride,
-                stride_uv: 0,
-                pixel_format: pf,
-                timestamp_us,
-                pixel_buffer,
-            }
-        }
-        PixelFormat::Unknown(_) => return,
-    };
-
-    // SAFETY: ユーザコールバックが panic すると extern "C" 境界を越えて
-    // unwind し未定義動作になるため、catch_unwind で防ぐ
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        (context.callback)(frame);
-    }));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{i420_plane_sizes, nv12_plane_sizes, yuy2_packed_frame_bytes};
-
-    #[test]
-    fn nv12_rejects_non_positive_dimensions() {
-        assert_eq!(nv12_plane_sizes(0, 4, 480), None);
-        assert_eq!(nv12_plane_sizes(4, 0, 480), None);
-        assert_eq!(nv12_plane_sizes(4, 4, 0), None);
-        assert_eq!(nv12_plane_sizes(-1, 4, 480), None);
-    }
-
-    #[test]
-    fn nv12_small_known_sizes() {
-        // Y: 4*2=8, UV 行は div_ceil(2,2)=1, UV: 4*1=4
-        assert_eq!(nv12_plane_sizes(4, 4, 2), Some((8, 4)));
-    }
-
-    #[test]
-    fn nv12_odd_height_uv_rows_use_div_ceil() {
-        // height=3 -> uv 行数 2, UV: stride_uv * 2
-        assert_eq!(nv12_plane_sizes(8, 8, 3), Some((24, 16)));
-    }
-
-    #[test]
-    fn i420_matches_macos_uv_formula() {
-        // video_c.m: uvSize = strideUV * chromaHeight * 2, chromaHeight = (height + 1) / 2
-        // height=480, stride_uv=320 -> chroma_h=240, uv=320*240*2=153600
-        assert_eq!(i420_plane_sizes(640, 320, 480), Some((307_200, 153_600)));
-        // 奇数 height=3, stride_uv=4 -> chroma_h=2, uv=4*2*2=16
-        assert_eq!(i420_plane_sizes(8, 4, 3), Some((24, 16)));
-    }
-
-    #[test]
-    fn i420_rejects_non_positive() {
-        assert_eq!(i420_plane_sizes(0, 4, 100), None);
-        assert_eq!(i420_plane_sizes(4, 0, 100), None);
-        assert_eq!(i420_plane_sizes(4, 4, -1), None);
-    }
-
-    #[test]
-    fn yuy2_packed_bytes_stride_times_height() {
-        assert_eq!(yuy2_packed_frame_bytes(640, 480), Some(307_200));
-        assert_eq!(yuy2_packed_frame_bytes(0, 480), None);
-        assert_eq!(yuy2_packed_frame_bytes(640, 0), None);
     }
 }

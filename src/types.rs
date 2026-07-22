@@ -1,25 +1,24 @@
 use std::ffi::c_void;
 use std::fmt;
-use std::sync::atomic::AtomicBool;
 
-#[cfg(target_os = "macos")]
+#[cfg(enable_avf)]
 unsafe extern "C" {
     fn CFRetain(cf: *const c_void) -> *const c_void;
     fn CFRelease(cf: *const c_void);
 }
 
-/// ピクセルフォーマット定数 (video_c.h と同じ値)
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+/// ピクセルフォーマット定数 (video.h と同じ FourCC 値)
 pub(crate) const VIDEO_PIXEL_FORMAT_NV12: u32 = 0x3231564E;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const VIDEO_PIXEL_FORMAT_YUY2: u32 = 0x32595559;
-#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) const VIDEO_PIXEL_FORMAT_I420: u32 = 0x30323449;
+pub(crate) const VIDEO_PIXEL_FORMAT_MJPG: u32 = 0x47504A4D;
 
 /// ピクセルフォーマット
 ///
-/// **Windows** では `to_raw` / `from_raw` はビルド対象に含まれない（`cfg` により定義されない）。
 /// 列挙・キャプチャは Media Foundation の `GUID` と内部で対応付けている。
+/// `to_raw` は全プラットフォームで利用可能。
+/// `from_raw` は FFI バックエンド有効時 (AVF / V4L2 / PipeWire) に利用可能。
+/// それ以外 (Windows/mf) ではコンパイルエラーになる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PixelFormat {
     /// NV12 (YUV 4:2:0 semi-planar)
@@ -28,29 +27,36 @@ pub enum PixelFormat {
     Yuy2,
     /// I420 (YUV 4:2:0 planar)
     I420,
+    /// MJPEG (Motion JPEG)
+    ///
+    /// 圧縮された JPEG フレーム。デコードは利用者の責務。
+    /// V4L2 バックエンド + `mjpeg` feature 有効時のみキャプチャ可能。
+    /// それ以外の環境でキャプチャ要求すると `Error::UnsupportedPixelFormat(PixelFormat::Mjpeg)` を返す。
+    Mjpeg,
     /// 不明なフォーマット
     Unknown(u32),
 }
 
 impl PixelFormat {
     /// 生の値からピクセルフォーマットを生成
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     pub(crate) fn from_raw(raw: u32) -> Self {
         match raw {
             VIDEO_PIXEL_FORMAT_NV12 => PixelFormat::Nv12,
             VIDEO_PIXEL_FORMAT_YUY2 => PixelFormat::Yuy2,
             VIDEO_PIXEL_FORMAT_I420 => PixelFormat::I420,
+            VIDEO_PIXEL_FORMAT_MJPG => PixelFormat::Mjpeg,
             _ => PixelFormat::Unknown(raw),
         }
     }
 
     /// ピクセルフォーマットを生の値に変換
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub fn to_raw(&self) -> u32 {
         match self {
             PixelFormat::Nv12 => VIDEO_PIXEL_FORMAT_NV12,
             PixelFormat::Yuy2 => VIDEO_PIXEL_FORMAT_YUY2,
             PixelFormat::I420 => VIDEO_PIXEL_FORMAT_I420,
+            PixelFormat::Mjpeg => VIDEO_PIXEL_FORMAT_MJPG,
             PixelFormat::Unknown(raw) => *raw,
         }
     }
@@ -61,6 +67,7 @@ impl PixelFormat {
             PixelFormat::Nv12 => "NV12",
             PixelFormat::Yuy2 => "YUY2",
             PixelFormat::I420 => "I420",
+            PixelFormat::Mjpeg => "MJPEG",
             PixelFormat::Unknown(_) => "Unknown",
         }
     }
@@ -90,18 +97,22 @@ impl PixelBuffer {
         self.ptr
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     pub(crate) unsafe fn from_retained_ptr(ptr: *mut c_void) -> Option<Self> {
         if ptr.is_null() {
             return None;
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(enable_avf)]
         {
             Some(Self { ptr })
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(enable_avf))]
         {
             // Linux では Drop で CFRelease しないため、非 NULL を保持するとリークしうる。契約上 NULL のみ。
+            debug_assert!(
+                ptr.is_null(),
+                "non-null PixelBuffer pointer is not supported outside enable_avf"
+            );
             None
         }
     }
@@ -109,7 +120,7 @@ impl PixelBuffer {
 
 impl Clone for PixelBuffer {
     fn clone(&self) -> Self {
-        #[cfg(target_os = "macos")]
+        #[cfg(enable_avf)]
         unsafe {
             if !self.ptr.is_null() {
                 let _ = CFRetain(self.ptr.cast_const());
@@ -122,7 +133,7 @@ impl Clone for PixelBuffer {
 
 impl Drop for PixelBuffer {
     fn drop(&mut self) {
-        #[cfg(target_os = "macos")]
+        #[cfg(enable_avf)]
         unsafe {
             if !self.ptr.is_null() {
                 CFRelease(self.ptr.cast_const());
@@ -147,12 +158,11 @@ impl PartialEq for PixelBuffer {
 
 impl Eq for PixelBuffer {}
 
-// Core Foundation の参照カウントはスレッドセーフで、保持しているのは不透明ポインタのみ。
+// Core Foundation の参照カウントはスレッドセーフ。
 unsafe impl Send for PixelBuffer {}
-unsafe impl Sync for PixelBuffer {}
 
 /// ビデオデバイスが対応するフォーマット
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VideoFormat {
     /// 幅
     pub width: i32,
@@ -172,6 +182,7 @@ pub struct VideoFormat {
 /// **Linux（PipeWire 等）** では不正値を C 側が既定解像度・フレームレートに置き換える場合があるため、Rust 側では拒否しない。
 ///
 /// ネゴシエーション結果が未知のピクセルフォーマットになる場合の挙動は、バックエンド（macOS / V4L2 / PipeWire / Windows）により異なりうる。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoCaptureConfig {
     /// デバイス ID (None の場合はデフォルトデバイス)
     pub device_id: Option<String>,
@@ -200,18 +211,28 @@ impl Default for VideoCaptureConfig {
 /// キャプチャされたビデオフレームの生データ（借用）。
 ///
 /// `data` および `uv_data` が指すメモリの寿命は、ユーザに渡したコールバックの呼び出し中に限る。
+#[derive(Debug)]
 pub struct VideoFrame<'a> {
     /// Y プレーンまたはインターリーブデータ
+    ///
+    /// **MJPEG の場合は圧縮された JPEG ペイロード**。長さは `data.len()` で取得すること。
+    /// スライス寿命は他フォーマットと同じくコールバック呼び出し中のみ。
     pub data: &'a [u8],
-    /// UV プレーン (NV12/I420 の場合のみ、YUY2 では None)
+    /// UV プレーン (NV12/I420 の場合のみ、YUY2 や MJPEG では None)
+    ///
+    /// **MJPEG では None**。
     pub uv_data: Option<&'a [u8]>,
     /// 幅 (ピクセル)
     pub width: i32,
     /// 高さ (ピクセル)
     pub height: i32,
     /// data のストライド (バイト/行)
+    ///
+    /// **MJPEG では 0**。
     pub stride: i32,
     /// uv_data のストライド (NV12/I420 の場合のみ)
+    ///
+    /// **MJPEG では 0**。
     pub stride_uv: i32,
     /// ピクセルフォーマット
     pub pixel_format: PixelFormat,
@@ -244,16 +265,24 @@ impl<'a> VideoFrame<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoFrameOwned {
     /// Y プレーンまたはインターリーブデータ
+    ///
+    /// **MJPEG の場合は圧縮された JPEG ペイロード**。長さは `data.len()` で取得すること。
     pub data: Vec<u8>,
-    /// UV プレーン (NV12/I420 の場合のみ、YUY2 では None)
+    /// UV プレーン (NV12/I420 の場合のみ、YUY2 や MJPEG では None)
+    ///
+    /// **MJPEG では None**。
     pub uv_data: Option<Vec<u8>>,
     /// 幅 (ピクセル)
     pub width: i32,
     /// 高さ (ピクセル)
     pub height: i32,
     /// data のストライド (バイト/行)
+    ///
+    /// **MJPEG では 0** (意味を持たない)。
     pub stride: i32,
     /// uv_data のストライド (NV12/I420 の場合のみ)
+    ///
+    /// **MJPEG では 0**。
     pub stride_uv: i32,
     /// ピクセルフォーマット
     pub pixel_format: PixelFormat,
@@ -280,7 +309,108 @@ impl VideoFrameOwned {
     }
 }
 
-pub(crate) struct CaptureContext {
-    pub(crate) callback: Box<dyn Fn(VideoFrame<'_>) + Send + Sync>,
-    pub(crate) running: AtomicBool,
+/// CoInitializeEx / CoUninitialize を対で呼び出す RAII ガード。
+///
+/// `!Send` であるため、別スレッドへの移動はコンパイルエラーになる。
+#[cfg(enable_mf)]
+pub(crate) struct CoInitGuard {
+    _not_send: std::marker::PhantomData<*const ()>,
+}
+
+#[cfg(enable_mf)]
+impl CoInitGuard {
+    #[allow(clippy::new_ret_no_self)]
+    pub(crate) fn new() -> crate::Result<Self> {
+        let result = unsafe {
+            windows::Win32::System::Com::CoInitializeEx(
+                None,
+                windows::Win32::System::Com::COINIT_MULTITHREADED,
+            )
+        };
+        if result.is_err() {
+            return Err(crate::Error::ComInitFailed);
+        }
+        Ok(Self {
+            _not_send: std::marker::PhantomData,
+        })
+    }
+}
+
+#[cfg(enable_mf)]
+impl Drop for CoInitGuard {
+    fn drop(&mut self) {
+        unsafe {
+            windows::Win32::System::Com::CoUninitialize();
+        }
+    }
+}
+
+/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず drop した上で `CoTaskMemFree` する。
+#[cfg(enable_mf)]
+pub(crate) struct CoTaskMemActivateArrayGuard {
+    pub(crate) ptr: *mut Option<windows::Win32::Media::MediaFoundation::IMFActivate>,
+    pub(crate) count: u32,
+}
+
+#[cfg(enable_mf)]
+impl Drop for CoTaskMemActivateArrayGuard {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe {
+                for i in 0..self.count as usize {
+                    std::ptr::drop_in_place(self.ptr.add(i));
+                }
+                windows::Win32::System::Com::CoTaskMemFree(Some(self.ptr as *const _));
+            }
+        }
+    }
+}
+
+/// Media Foundation GUID を PixelFormat に変換
+#[cfg(enable_mf)]
+pub(crate) fn guid_to_pixel_format(guid: &windows::core::GUID) -> Option<PixelFormat> {
+    if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12 {
+        Some(PixelFormat::Nv12)
+    } else if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_YUY2 {
+        Some(PixelFormat::Yuy2)
+    } else if *guid == windows::Win32::Media::MediaFoundation::MFVideoFormat_I420 {
+        Some(PixelFormat::I420)
+    } else {
+        None
+    }
+}
+
+/// PixelFormat を Media Foundation GUID に変換
+#[cfg(enable_mf)]
+pub(crate) fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<windows::core::GUID> {
+    match pixel_format {
+        PixelFormat::Nv12 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_NV12),
+        PixelFormat::Yuy2 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_YUY2),
+        PixelFormat::I420 => Some(windows::Win32::Media::MediaFoundation::MFVideoFormat_I420),
+        PixelFormat::Mjpeg => None,
+        PixelFormat::Unknown(_) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+    fn from_raw_mjpeg_returns_mjpeg() {
+        assert_eq!(
+            PixelFormat::from_raw(VIDEO_PIXEL_FORMAT_MJPG),
+            PixelFormat::Mjpeg
+        );
+    }
+
+    #[test]
+    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
+    fn mjpeg_from_raw_to_raw_roundtrip() {
+        assert_eq!(
+            PixelFormat::from_raw(VIDEO_PIXEL_FORMAT_MJPG).to_raw(),
+            VIDEO_PIXEL_FORMAT_MJPG
+        );
+    }
 }

@@ -1,9 +1,10 @@
-#include "video_c.h"
+#include "video_v4l2.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/videodev2.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +13,19 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
+
+#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
+// MJPEG ペイロード長の絶対上限 (256 MiB)
+// 根拠: UVC 1.5 仕様のアイソクロナス転送最大ペイロードは High Speed (480 Mbps) で 3072 バイト/マイクロフレーム、
+// SuperSpeed (5 Gbps) で 1024 バイト/マイクロフレーム。
+// 実フレームサイズは 4K MJPEG で 5〜15 MiB、8K MJPEG で 20〜60 MiB、8K HDR で 90 MiB 超に達しうる。
+// V4L2 の bytesused は u32 で最大 4 GiB だが、256 MiB は以下の理由で選択:
+// 1. 将来の 8K や 16K 高フレームレートカメラを見越した十分な余裕値
+// 2. int (32-bit signed) でサイズを扱う既存コードパスとの互換性 (256 MiB < INT32_MAX)
+// 3. malloc/stack 割り当てにおける現実的な上限として過度に大きくない
+// 異常ドライバや V4L2_BUF_FLAG_ERROR 付き巨大値に対する防御線として機能する。
+static const size_t MJPEG_MAX_PAYLOAD_BYTES = 256u * 1024u * 1024u;
+#endif
 
 // VideoDevice 構造体
 struct VideoDevice {
@@ -38,7 +52,7 @@ struct VideoSession {
     FrameCallback callback;
     void* user_data;
     pthread_t thread;
-    volatile int running;
+    atomic_int running;
 };
 
 static int xioctl(int fd, unsigned long request, void* arg) {
@@ -58,6 +72,10 @@ static uint32_t convert_v4l2_pixel_format(uint32_t v4l2_format) {
             return VIDEO_PIXEL_FORMAT_YUY2;
         case V4L2_PIX_FMT_YUV420:
             return VIDEO_PIXEL_FORMAT_I420;
+#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
+        case V4L2_PIX_FMT_MJPEG:
+            return VIDEO_PIXEL_FORMAT_MJPG;
+#endif
         default:
             return 0;
     }
@@ -71,6 +89,10 @@ static uint32_t convert_video_pixel_format_to_v4l2(uint32_t pixel_format) {
             return V4L2_PIX_FMT_YUYV;
         case VIDEO_PIXEL_FORMAT_I420:
             return V4L2_PIX_FMT_YUV420;
+#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
+        case VIDEO_PIXEL_FORMAT_MJPG:
+            return V4L2_PIX_FMT_MJPEG;
+#endif
         default:
             return 0;
     }
@@ -204,7 +226,7 @@ static int enumerate_device_formats(const char* path, struct VideoFormatEntry** 
     return 0;
 }
 
-int video_enumerate_devices(struct VideoDevice*** devices, int* count) {
+int video_v4l2_enumerate_devices(struct VideoDevice*** devices, int* count) {
     if (!devices || !count) {
         return -1;
     }
@@ -298,7 +320,7 @@ int video_enumerate_devices(struct VideoDevice*** devices, int* count) {
     return 0;
 }
 
-void video_free_devices(struct VideoDevice** devices, int count) {
+void video_v4l2_free_devices(struct VideoDevice** devices, int count) {
     if (!devices) {
         return;
     }
@@ -314,28 +336,28 @@ void video_free_devices(struct VideoDevice** devices, int count) {
     free(devices);
 }
 
-const char* video_device_name(struct VideoDevice* device) {
+const char* video_v4l2_device_name(struct VideoDevice* device) {
     if (!device) {
         return NULL;
     }
     return device->name;
 }
 
-const char* video_device_unique_id(struct VideoDevice* device) {
+const char* video_v4l2_device_unique_id(struct VideoDevice* device) {
     if (!device) {
         return NULL;
     }
     return device->unique_id;
 }
 
-int video_device_format_count(struct VideoDevice* device) {
+int video_v4l2_device_format_count(struct VideoDevice* device) {
     if (!device) {
         return 0;
     }
     return device->format_count;
 }
 
-const struct VideoFormatEntry* video_device_get_format(struct VideoDevice* device, int index) {
+const struct VideoFormatEntry* video_v4l2_device_get_format(struct VideoDevice* device, int index) {
     if (!device || index < 0 || index >= device->format_count) {
         return NULL;
     }
@@ -405,7 +427,7 @@ fail:
     return -1;
 }
 
-struct VideoSession* video_session_create(const char* device_id, int width,
+struct VideoSession* video_v4l2_session_create(const char* device_id, int width,
                                           int height, int fps,
                                           uint32_t requested_pixel_format) {
     const char* device_path = device_id ? device_id : "/dev/video0";
@@ -484,7 +506,7 @@ struct VideoSession* video_session_create(const char* device_id, int width,
     session->width = fmt.fmt.pix.width;
     session->height = fmt.fmt.pix.height;
     session->pixel_format = pixel_format;
-    session->running = 0;
+    atomic_init(&session->running, 0);
 
     if (init_mmap(session) < 0) {
         close(fd);
@@ -495,13 +517,13 @@ struct VideoSession* video_session_create(const char* device_id, int width,
     return session;
 }
 
-void video_session_destroy(struct VideoSession* session) {
+void video_v4l2_session_destroy(struct VideoSession* session) {
     if (!session) {
         return;
     }
 
-    if (session->running) {
-        video_session_stop(session);
+    if (atomic_load(&session->running)) {
+        video_v4l2_session_stop(session);
     }
 
     cleanup_mmap(session);
@@ -516,7 +538,7 @@ void video_session_destroy(struct VideoSession* session) {
 static void* capture_thread(void* arg) {
     struct VideoSession* session = (struct VideoSession*)arg;
 
-    while (session->running) {
+    while (atomic_load(&session->running)) {
         fd_set fds;
         FD_ZERO(&fds);
         FD_SET(session->fd, &fds);
@@ -563,9 +585,12 @@ static void* capture_thread(void* arg) {
             const uint8_t* data = (const uint8_t*)session->buffers[buf.index].start;
             size_t mmap_len = session->buffers[buf.index].length;
             // bytesused が 0 の場合はドライバ不具合とみなしてスキップ
+            if (buf.bytesused == 0) {
+                goto requeue;
+            }
             uint32_t used = buf.bytesused;
             // 有効データ長は mmap 長と bytesused の小さい方で制限する
-            size_t available = (used > 0 && (size_t)used < mmap_len) ? (size_t)used : mmap_len;
+            size_t available = (size_t)used < mmap_len ? (size_t)used : mmap_len;
 
             if (session->pixel_format == V4L2_PIX_FMT_NV12) {
                 // NV12: Y プレーンと UV プレーンが連続
@@ -582,6 +607,20 @@ static void* capture_thread(void* arg) {
                 session->callback(session->user_data, data, uv_data, session->width,
                                   session->height, session->width, session->width,
                                   VIDEO_PIXEL_FORMAT_NV12, timestamp_us, NULL);
+            } else if (session->pixel_format == V4L2_PIX_FMT_YUV420) {
+                // YUV420: Y, U, V プレーンが連続
+                size_t y_size = (size_t)session->width * (size_t)session->height;
+                size_t chroma_h = ((size_t)session->height + 1u) / 2u;
+                int stride_uv = (session->width + 1) / 2;
+                size_t uv_total = (size_t)stride_uv * chroma_h * 2u;
+                size_t need = y_size + uv_total;
+                if (need > available) {
+                    goto requeue;
+                }
+                const uint8_t* uv_data = data + y_size;
+                session->callback(session->user_data, data, uv_data, session->width,
+                                session->height, session->width, stride_uv,
+                                VIDEO_PIXEL_FORMAT_I420, timestamp_us, NULL);
             } else if (session->pixel_format == V4L2_PIX_FMT_YUYV) {
                 // YUY2: パックドフォーマット
                 size_t need = (size_t)session->width * 2 * (size_t)session->height;
@@ -591,6 +630,16 @@ static void* capture_thread(void* arg) {
                 session->callback(session->user_data, data, NULL, session->width, session->height,
                                   session->width * 2, 0, VIDEO_PIXEL_FORMAT_YUY2, timestamp_us,
                                   NULL);
+#ifdef SHIGUREDO_VIDEO_DEVICE_MJPEG
+            } else if (session->pixel_format == V4L2_PIX_FMT_MJPEG) {
+                if (available > MJPEG_MAX_PAYLOAD_BYTES) {
+                    goto requeue;
+                }
+                session->callback(session->user_data, data, NULL,
+                                  session->width, session->height,
+                                  (int)available, 0,
+                                  VIDEO_PIXEL_FORMAT_MJPG, timestamp_us, NULL);
+#endif
             }
         }
 
@@ -604,12 +653,12 @@ requeue:
     return NULL;
 }
 
-int video_session_start(struct VideoSession* session, FrameCallback callback, void* user_data) {
+int video_v4l2_session_start(struct VideoSession* session, FrameCallback callback, void* user_data) {
     if (!session || !callback) {
         return -1;
     }
 
-    if (session->running) {
+    if (atomic_load(&session->running)) {
         return 0;
     }
 
@@ -635,11 +684,11 @@ int video_session_start(struct VideoSession* session, FrameCallback callback, vo
         return -1;
     }
 
-    session->running = 1;
+    atomic_store(&session->running, 1);
 
     // キャプチャスレッドを開始
     if (pthread_create(&session->thread, NULL, capture_thread, session) != 0) {
-        session->running = 0;
+        atomic_store(&session->running, 0);
         xioctl(session->fd, VIDIOC_STREAMOFF, &type);
         return -1;
     }
@@ -647,12 +696,12 @@ int video_session_start(struct VideoSession* session, FrameCallback callback, vo
     return 0;
 }
 
-void video_session_stop(struct VideoSession* session) {
-    if (!session || !session->running) {
+void video_v4l2_session_stop(struct VideoSession* session) {
+    if (!session || !atomic_load(&session->running)) {
         return;
     }
 
-    session->running = 0;
+    atomic_store(&session->running, 0);
 
     pthread_join(session->thread, NULL);
 

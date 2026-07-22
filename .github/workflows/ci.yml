@@ -23,7 +23,10 @@ jobs:
             cargo-flags: ""
           - name: Ubuntu (pipewire)
             os: ubuntu-24.04
-            cargo-flags: "--no-default-features --features pipewire"
+            cargo-flags: "--no-default-features --features default-pipewire"
+          - name: Ubuntu (v4l2,pipewire)
+            os: ubuntu-24.04
+            cargo-flags: "--features v4l2,pipewire"
           - name: Ubuntu ARM (v4l2)
             os: ubuntu-24.04-arm
             cargo-flags: ""
@@ -31,13 +34,13 @@ jobs:
             os: macos-26
             cargo-flags: ""
           - name: Windows
-            os: windows-2025
+            os: windows-2025-vs2026
             cargo-flags: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - run: rustup update stable
       - uses: shiguredo/github-actions/.github/actions/rust-cache@main
         with:
@@ -70,7 +73,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Add cargo to PATH (Linux/macOS)
         if: runner.os == 'Linux' || runner.os == 'macOS'
         run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
@@ -80,6 +83,26 @@ jobs:
         run: echo %USERPROFILE%\.cargo\bin>> "%GITHUB_PATH%"
       - run: rustup update stable
       - run: cargo test --workspace
+
+      # self-hosted Linux ランナーでは GitHub Actions サービス環境から
+      # PulseAudio/PipeWire のソケットが見つからないことがあり、
+      # 音声デバイスが列挙されない。その対策として XDG_RUNTIME_DIR を設定する。
+      - name: Setup XDG_RUNTIME_DIR for self-hosted Linux device tests
+        if: ${{ runner.environment == 'self-hosted' && runner.os == 'Linux' }}
+        run: |
+          if [ -z "$XDG_RUNTIME_DIR" ]; then
+            RUNTIME_DIR="/run/user/$(id -u)"
+            if [ -d "$RUNTIME_DIR" ]; then
+              echo "XDG_RUNTIME_DIR=$RUNTIME_DIR" >> "$GITHUB_ENV"
+              echo "Set XDG_RUNTIME_DIR=$RUNTIME_DIR"
+            else
+              echo "Warning: $RUNTIME_DIR does not exist"
+            fi
+          fi
+      - name: Start pipewire daemon
+        if: ${{ runner.environment == 'self-hosted' && runner.os == 'Linux' }}
+        run: systemctl --user start pipewire
+
       # macOS ではカメラキャプチャテストをスキップする。
       # macOS の TCC (Transparency, Consent, and Control) はカメラアクセスに
       # GUI での対話的な許可が必要であり、launchd サービスとして動作する
@@ -90,7 +113,12 @@ jobs:
       # デバイス列挙 (device_list, device_info) は権限不要のため引き続き実行する。
       - name: Run ignored tests (device required)
         if: runner.os != 'macOS'
-        run: cargo test --workspace -- --ignored
+        run: |
+          cargo test --workspace -- --ignored
+      - name: Run ignored tests for pipewire (device required)
+        if: runner.os == 'Linux'
+        run: |
+          cargo test --workspace --no-default-features --features default-pipewire -- --ignored
       - name: Run device_list
         run: >
           cargo run --example device_list | jq -e
@@ -99,9 +127,30 @@ jobs:
           and (.devices | all(.name | length > 0))
           and (.devices | all(.unique_id | length > 0))
           and (.devices | all(.format_count > 0))'
+      - name: Run device_list for pipewire
+        if: runner.os == 'Linux'
+        run: >
+          cargo run --example device_list --no-default-features --features default-pipewire | jq -e
+          '.device_count > 0
+          and .device_count == (.devices | length)
+          and (.devices | all(.name | length > 0))
+          and (.devices | all(.unique_id | length > 0))
+          and (.devices | all(.format_count > 0))'
       - name: Run device_info
         run: >
           cargo run --example device_info | jq -e
+          '.statistics.device_count > 0
+          and .statistics.device_count == (.devices | length)
+          and .statistics.total_format_count > 0
+          and (.devices | all(.name | length > 0))
+          and (.devices | all(.unique_id | length > 0))
+          and (.devices | all(.format_count > 0))
+          and (.devices | all(.formats | all(.width > 0 and .height > 0 and .max_fps > 0)))
+          and (.devices | all(.formats | all(.pixel_format | length > 0)))'
+      - name: Run device_info for pipewire
+        if: runner.os == 'Linux'
+        run: >
+          cargo run --example device_info --no-default-features --features default-pipewire | jq -e
           '.statistics.device_count > 0
           and .statistics.device_count == (.devices | length)
           and .statistics.total_format_count > 0

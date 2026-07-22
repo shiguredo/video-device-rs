@@ -1,0 +1,10 @@
+[package]
+name = "pbt"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dev-dependencies]
+# PBT (Property-Based Testing) 用
+proptest = "1.11"
+shiguredo_video_device = { path = "..", default-features = false }

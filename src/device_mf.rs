@@ -2,108 +2,50 @@
 
 use std::ptr;
 
-use windows::{Win32::Media::MediaFoundation::*, Win32::System::Com::*, core::GUID};
+use windows::{Win32::Media::MediaFoundation::*, core::GUID};
 
 use crate::error::{Error, Result};
-use crate::types::{PixelFormat, VideoFormat};
+use crate::types::{CoInitGuard, CoTaskMemActivateArrayGuard, VideoFormat, guid_to_pixel_format};
 
-/// `MFEnumDeviceSources` が返した `IMFActivate` 配列を必ず `CoTaskMemFree` する。
-struct CoTaskMemActivateArrayGuard {
-    ptr: *mut Option<IMFActivate>,
-}
-
-impl Drop for CoTaskMemActivateArrayGuard {
-    fn drop(&mut self) {
-        if !self.ptr.is_null() {
-            unsafe {
-                CoTaskMemFree(Some(self.ptr as *const _));
-            }
-        }
-    }
-}
-
-/// ビデオデバイス
-pub struct VideoDevice {
+/// ビデオデバイス (Windows Media Foundation)
+pub(crate) struct MfDeviceImpl {
     name: String,
     unique_id: String,
     formats: Vec<VideoFormat>,
 }
 
-impl VideoDevice {
-    /// デバイス名を取得
+impl MfDeviceImpl {
+    /// デバイス名を取得する。
     pub fn name(&self) -> Result<String> {
         Ok(self.name.clone())
     }
 
-    /// デバイスの一意識別子を取得
+    /// デバイスの一意識別子を取得する。
     pub fn unique_id(&self) -> Result<String> {
         Ok(self.unique_id.clone())
     }
 
-    /// 対応フォーマット数を取得
+    /// 対応フォーマット数を取得する。
     pub fn format_count(&self) -> usize {
         self.formats.len()
     }
 
-    /// 対応フォーマット一覧を取得
+    /// 対応フォーマット一覧を取得する。
     pub fn formats(&self) -> Vec<VideoFormat> {
         self.formats.clone()
     }
 }
 
-unsafe impl Send for VideoDevice {}
-unsafe impl Sync for VideoDevice {}
-
-/// ビデオデバイスリスト
-pub struct VideoDeviceList {
-    devices: Vec<VideoDevice>,
+/// ビデオデバイスリスト (Windows Media Foundation)
+pub(crate) struct MfDeviceListImpl {
+    pub(crate) devices: Vec<MfDeviceImpl>,
 }
 
-impl VideoDeviceList {
+impl MfDeviceListImpl {
     /// デバイスを列挙
     pub fn enumerate() -> Result<Self> {
         let devices = enumerate_devices_internal()?;
         Ok(Self { devices })
-    }
-
-    /// デバイスのスライスを取得
-    pub fn devices(&self) -> &[VideoDevice] {
-        &self.devices
-    }
-
-    /// デバイス数を取得
-    pub fn len(&self) -> usize {
-        self.devices.len()
-    }
-
-    /// デバイスが空かどうか
-    pub fn is_empty(&self) -> bool {
-        self.devices.is_empty()
-    }
-}
-
-impl<'a> IntoIterator for &'a VideoDeviceList {
-    type Item = &'a VideoDevice;
-    type IntoIter = std::slice::Iter<'a, VideoDevice>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.devices.iter()
-    }
-}
-
-unsafe impl Send for VideoDeviceList {}
-unsafe impl Sync for VideoDeviceList {}
-
-/// Media Foundation GUID を PixelFormat に変換
-fn guid_to_pixel_format(guid: &GUID) -> Option<PixelFormat> {
-    if *guid == MFVideoFormat_NV12 {
-        Some(PixelFormat::Nv12)
-    } else if *guid == MFVideoFormat_YUY2 {
-        Some(PixelFormat::Yuy2)
-    } else if *guid == MFVideoFormat_I420 {
-        Some(PixelFormat::I420)
-    } else {
-        None
     }
 }
 
@@ -181,10 +123,9 @@ fn get_device_formats(activate: &IMFActivate) -> Vec<VideoFormat> {
 }
 
 /// デバイスを列挙
-fn enumerate_devices_internal() -> Result<Vec<VideoDevice>> {
+fn enumerate_devices_internal() -> Result<Vec<MfDeviceImpl>> {
     unsafe {
-        // 列挙用にこのスレッドで COM を初期化する。対称の CoUninitialize は呼ばない（スレッドの参照カウントとアプリ方針に合わせる）。
-        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let _com_guard = CoInitGuard::new()?;
 
         // MFStartup が失敗した場合は参照カウントを増やしていないため MFShutdown は呼ばない（MSDN の初期化契約に従う）。
         MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET).map_err(|_| Error::DeviceAccessDenied)?;
@@ -199,7 +140,7 @@ fn enumerate_devices_internal() -> Result<Vec<VideoDevice>> {
 }
 
 /// デバイス列挙の内部実装
-unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
+unsafe fn enumerate_devices_impl() -> Result<Vec<MfDeviceImpl>> {
     unsafe {
         // デバイス列挙用の属性を作成
         let mut attributes: Option<IMFAttributes> = None;
@@ -223,7 +164,10 @@ unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
         let mut devices = Vec::new();
 
         if count > 0 && !devices_ptr.is_null() {
-            let _devices_guard = CoTaskMemActivateArrayGuard { ptr: devices_ptr };
+            let _devices_guard = CoTaskMemActivateArrayGuard {
+                ptr: devices_ptr,
+                count,
+            };
 
             let device_slice = std::slice::from_raw_parts(devices_ptr, count as usize);
 
@@ -242,7 +186,7 @@ unsafe fn enumerate_devices_impl() -> Result<Vec<VideoDevice>> {
                 // フォーマット情報を取得
                 let formats = get_device_formats(activate);
 
-                devices.push(VideoDevice {
+                devices.push(MfDeviceImpl {
                     name,
                     unique_id,
                     formats,
