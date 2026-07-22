@@ -11,6 +11,11 @@
 
 ## develop
 
+
+## 2026.1.0
+
+**リリース日**: 2026-07-22
+
 - [ADD] Windows で `CoInitializeEx` / `CoUninitialize` を対で呼び出す RAII ガード `CoInitGuard` を追加し、既存の呼び出しを置き換える
   - @melpon
 - [ADD] Linux で `v4l2` と `pipewire` の feature flag を同時に有効化可能にする
