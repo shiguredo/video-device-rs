@@ -12,10 +12,16 @@
 ## develop
 
 
-## 2026.1.0
+## 2026.2.0
 
 **リリース日**: 2026-07-22
 
+- [CHANGE] PixelFormat に Mjpeg バリアントを追加し、Linux (V4L2) で mjpeg feature による MJPEG パススルーキャプチャに対応する
+  - @voluntas
+- [CHANGE] `VideoDevice`, `VideoDeviceList`, `VideoCapture` を構造体から enum に変更する
+  - @melpon
+- [CHANGE] Windows でキャプチャスレッドが panic したあと再 `start` すると `Error::CaptureFaulted` を返すようにし、stderr にもログを出す
+  - @voluntas
 - [ADD] Windows で `CoInitializeEx` / `CoUninitialize` を対で呼び出す RAII ガード `CoInitGuard` を追加し、既存の呼び出しを置き換える
   - @melpon
 - [ADD] Linux で `v4l2` と `pipewire` の feature flag を同時に有効化可能にする
@@ -24,12 +30,6 @@
   - macOS AVFoundation に `avf` feature、Windows Media Foundation に `mf` feature を追加
   - `default-*` feature flag で `VideoDeviceList::enumerate()` および `VideoCapture::new()` によるデフォルトバックエンドを選択可能にする
   - @melpon
-- [CHANGE] PixelFormat に Mjpeg バリアントを追加し、Linux (V4L2) で mjpeg feature による MJPEG パススルーキャプチャに対応する
-  - @voluntas
-- [CHANGE] `VideoDevice`, `VideoDeviceList`, `VideoCapture` を構造体から enum に変更する
-  - @melpon
-- [CHANGE] Windows でキャプチャスレッドが panic したあと再 `start` すると `Error::CaptureFaulted` を返すようにし、stderr にもログを出す
-  - @voluntas
 - [FIX] `VideoCapture`, `PixelBuffer` はスレッドセーフな構造体ではないので Sync を削除する
   - @melpon
 - [FIX] V4L2 バックエンドで I420 フォーマットの場合にコールバックが発生しないのを修正する
