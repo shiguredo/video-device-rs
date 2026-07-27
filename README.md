@@ -43,7 +43,7 @@ Linux のパーミッションや PipeWire の注意点は [docs/LINUX.md](docs/
 
 ## 動作要件
 
-- Rust 1.88 以上 (`rust-version = "1.88"`)
+- Rust 1.93 以上 (`rust-version = "1.93"`)
 
 ## feature
 
