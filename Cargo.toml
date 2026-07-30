@@ -1,8 +1,8 @@
 [package]
 name = "shiguredo_video_device"
-version = "2026.2.0"
+version = "2026.3.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.93"
 description = "Cross-platform video device library"
 readme = "README.md"
 homepage = "https://github.com/shiguredo/video-device-rs"
@@ -24,13 +24,13 @@ name = "camera_preview"
 # 依存ゼロの軽量 JSON パーサ／シリアライザ。サンプル用途で利用
 nojson = "0.3"
 # camera_preview サンプルで生フレームを表示するためのプレビュー用クレート
-raw_player = "=2026.2.0-canary.0"
+raw_player = "=2026.2.0"
 
 [build-dependencies]
 # C/C++ ヘッダから Rust の FFI バインディングを自動生成する
 bindgen = "0.72"
 # build.rs から C/C++ コードをコンパイルしてリンクするためのヘルパ
-cc = "1.2"
+cc = "1.4"
 # Linux などで pkg-config を介してシステムライブラリ (V4L2 等) を検出する
 pkg-config = "0.3"
 
