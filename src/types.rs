@@ -1,3 +1,10 @@
+//! 公開型とバックエンド共通のヘルパの定義。
+//!
+//! ピクセルフォーマット [`PixelFormat`]、デバイスが対応するフォーマット [`VideoFormat`]、
+//! キャプチャ設定 [`VideoCaptureConfig`]、フレーム [`VideoFrame`] / [`VideoFrameOwned`]、
+//! macOS の CVPixelBuffer 参照 [`PixelBuffer`] を提供する。
+//! Media Foundation バックエンド有効時は COM 初期化ガードなどの内部ヘルパも含む。
+
 use std::ffi::c_void;
 use std::fmt;
 
@@ -51,18 +58,18 @@ impl PixelFormat {
     }
 
     /// ピクセルフォーマットを生の値に変換
-    pub fn to_raw(&self) -> u32 {
+    pub fn to_raw(self) -> u32 {
         match self {
             PixelFormat::Nv12 => VIDEO_PIXEL_FORMAT_NV12,
             PixelFormat::Yuy2 => VIDEO_PIXEL_FORMAT_YUY2,
             PixelFormat::I420 => VIDEO_PIXEL_FORMAT_I420,
             PixelFormat::Mjpeg => VIDEO_PIXEL_FORMAT_MJPG,
-            PixelFormat::Unknown(raw) => *raw,
+            PixelFormat::Unknown(raw) => raw,
         }
     }
 
     /// フォーマット名を取得
-    pub fn name(&self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             PixelFormat::Nv12 => "NV12",
             PixelFormat::Yuy2 => "YUY2",
@@ -319,7 +326,6 @@ pub(crate) struct CoInitGuard {
 
 #[cfg(enable_mf)]
 impl CoInitGuard {
-    #[allow(clippy::new_ret_no_self)]
     pub(crate) fn new() -> crate::Result<Self> {
         let result = unsafe {
             windows::Win32::System::Com::CoInitializeEx(
@@ -392,12 +398,11 @@ pub(crate) fn pixel_format_to_guid(pixel_format: PixelFormat) -> Option<windows:
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(enable_avf, enable_v4l2, enable_pipewire)))]
 mod tests {
     use super::*;
 
     #[test]
-    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     fn from_raw_mjpeg_returns_mjpeg() {
         assert_eq!(
             PixelFormat::from_raw(VIDEO_PIXEL_FORMAT_MJPG),
@@ -406,7 +411,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
     fn mjpeg_from_raw_to_raw_roundtrip() {
         assert_eq!(
             PixelFormat::from_raw(VIDEO_PIXEL_FORMAT_MJPG).to_raw(),

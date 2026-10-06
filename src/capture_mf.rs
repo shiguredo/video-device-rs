@@ -1,4 +1,7 @@
 //! Windows 用ビデオキャプチャ (Media Foundation)
+//!
+//! `IMFSourceReader` からサンプルを読み出し、キャプチャスレッド上で
+//! ユーザーコールバックへフレームを渡す。
 
 use std::ptr;
 use std::sync::Arc;
