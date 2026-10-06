@@ -9,7 +9,7 @@ mod pipewire_tests {
 
     // デバイス列挙が成功し、フォーマット情報が空でないことを確認する
     #[test]
-    #[ignore]
+    #[ignore = "PipeWire デーモンと実機カメラが必要なため cargo test -- --ignored で実行する"]
     fn pipewire_enumerate_returns_formats() {
         // PipeWire デーモンが起動していて、少なくとも 1 台のカメラが接続されていることを期待する
         let list = VideoDeviceList::enumerate_pipewire()
@@ -50,7 +50,7 @@ mod pipewire_tests {
 
     // 複数デバイスがある場合に各デバイスの unique_id が重複していないことを確認する
     #[test]
-    #[ignore]
+    #[ignore = "PipeWire デーモンと実機カメラが必要なため cargo test -- --ignored で実行する"]
     fn pipewire_multiple_devices_formats() {
         let list =
             VideoDeviceList::enumerate_pipewire().expect("PipeWire デーモンが起動していること");
@@ -72,7 +72,7 @@ mod pipewire_tests {
 
     // format_count と formats() の長さが一致することを確認する
     #[test]
-    #[ignore]
+    #[ignore = "PipeWire デーモンと実機カメラが必要なため cargo test -- --ignored で実行する"]
     fn pipewire_format_index_bounds() {
         let list =
             VideoDeviceList::enumerate_pipewire().expect("PipeWire デーモンが起動していること");
