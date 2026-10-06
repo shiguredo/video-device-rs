@@ -11,6 +11,32 @@
 
 ## develop
 
+- [FIX] `Cargo.toml` の `windows` 依存を MSRV 1.93 の cargo が解釈できる形式に修正する
+  - @voluntas
+
+### misc
+
+- [ADD] `Error` の `Display` と `source` を検証する PBT を追加する
+  - @voluntas
+- [UPDATE] PBT をプロパティベーステストフレームワーク noprop に移行し、`PixelFormat::Unknown` を生成対象に追加する
+  - @voluntas
+- [UPDATE] `rust-toolchain.toml` のツールチェーンを MSRV (1.93) に固定する
+  - @voluntas
+- [UPDATE] `src/ffi.rs` の `#![allow(...)]` を削除する
+  - @voluntas
+- [UPDATE] `Error` に `Copy` を実装し、全バリアントにドキュメントを追加する
+  - @voluntas
+- [UPDATE] `PixelFormat` のメソッドを `self` 受けに統一する
+  - @voluntas
+- [UPDATE] 公開 API のドキュメントとコメントを整備し、examples のログメッセージを英語に統一する
+  - @voluntas
+- [UPDATE] `Makefile` から `fuzz/` 未整備で動作しない fuzz 系ターゲットを削除する
+  - @voluntas
+- [UPDATE] `examples/camera_preview` の引数パースを noargs に移行する
+  - @voluntas
+- [UPDATE] `#[ignore]` に実機デバイスが必要な理由を明示する
+  - @voluntas
+
 ## 2026.3.0
 
 **リリース日**: 2026-07-30
