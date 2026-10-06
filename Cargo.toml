@@ -21,10 +21,12 @@ name = "camera_preview"
 [dependencies]
 
 [dev-dependencies]
+# 依存ゼロのコマンドライン引数パーサ。camera_preview サンプルで利用
+noargs = "0.4"
 # 依存ゼロの軽量 JSON パーサ／シリアライザ。サンプル用途で利用
 nojson = "0.3"
 # camera_preview サンプルで生フレームを表示するためのプレビュー用クレート
-raw_player = "=2026.2.0"
+raw_player = "2026.2"
 
 [build-dependencies]
 # C/C++ ヘッダから Rust の FFI バインディングを自動生成する
@@ -34,20 +36,18 @@ cc = "1.4"
 # Linux などで pkg-config を介してシステムライブラリ (V4L2 等) を検出する
 pkg-config = "0.3"
 
-[target."cfg(windows)".dependencies]
+[target."cfg(windows)".dependencies.windows]
 # Microsoft 公式の Win32 API バインディング。必要な機能だけを feature で有効化する
-windows = {
-  version = "0.62",
-  features = [
-    # HRESULT・HANDLE・BOOL などの Win32 基本型
-    "Win32_Foundation",
-    # Media Foundation のカメラキャプチャ関連 API
-    "Win32_Media_MediaFoundation",
-    # COM の初期化・インターフェース呼び出し基盤
-    "Win32_System_Com",
-  ],
-  optional = true
-}
+version = "0.62"
+features = [
+  # HRESULT・HANDLE・BOOL などの Win32 基本型
+  "Win32_Foundation",
+  # Media Foundation のカメラキャプチャ関連 API
+  "Win32_Media_MediaFoundation",
+  # COM の初期化・インターフェース呼び出し基盤
+  "Win32_System_Com",
+]
+optional = true
 
 [features]
 default = ["default-avf", "default-mf", "default-v4l2"]
