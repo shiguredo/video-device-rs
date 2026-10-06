@@ -1,12 +1,23 @@
-use shiguredo_video_device::VideoDeviceList;
+//! 全てのビデオデバイスを JSON で出力するサンプル。
+//!
+//! バックエンドが 1 つも有効でない場合はコンパイル対象から外す。
 
+#[cfg(not(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf)))]
 fn main() {
+    eprintln!("No video backend feature is enabled. Enable one of avf, v4l2, pipewire, or mf.");
+    std::process::exit(1);
+}
+
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf))]
+fn main() {
+    use shiguredo_video_device::VideoDeviceList;
+
     let device_list = VideoDeviceList::enumerate();
 
     let device_list = match device_list {
         Ok(list) => list,
         Err(e) => {
-            eprintln!("デバイスの列挙に失敗しました: {e}");
+            eprintln!("failed to enumerate devices: {e}");
             std::process::exit(1);
         }
     };
