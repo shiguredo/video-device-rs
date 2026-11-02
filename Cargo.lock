@@ -277,7 +277,7 @@ checksum = "b475c218cf15d056ed3e48c9e98693135b261b79530881e63b162650b236fdec"
 
 [[package]]
 name = "shiguredo_video_device"
-version = "2026.3.0"
+version = "2026.4.0-canary.0"
 dependencies = [
  "bindgen",
  "cc",
