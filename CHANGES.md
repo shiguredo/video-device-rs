@@ -11,16 +11,20 @@
 
 ## develop
 
+- [CHANGE] MSRV (`rust-version`) を 1.95 に上げる
+  - @voluntas
+
 - [FIX] `Cargo.toml` の `windows` 依存を MSRV 1.93 の cargo が解釈できる形式に修正する
   - @voluntas
 
 ### misc
 
+- [UPDATE] 実機デバイスが必要なテストを `#[ignore]` ではなく環境変数 `VIDEO_DEVICE_DEVICE_TEST` で判定するようにする
+  - @voluntas
+
 - [ADD] `Error` の `Display` と `source` を検証する PBT を追加する
   - @voluntas
 - [UPDATE] PBT をプロパティベーステストフレームワーク noprop に移行し、`PixelFormat::Unknown` を生成対象に追加する
-  - @voluntas
-- [UPDATE] `rust-toolchain.toml` のツールチェーンを MSRV (1.93) に固定する
   - @voluntas
 - [UPDATE] `src/ffi.rs` の `#![allow(...)]` を削除する
   - @voluntas
