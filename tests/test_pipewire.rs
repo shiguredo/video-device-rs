@@ -1,16 +1,28 @@
 //! PipeWire バックエンドの統合テスト
 //!
-//! PipeWire デーモンとカメラが接続された環境でのみ実行可能。
-//! `cargo test -- --ignored` で実行する。
+//! PipeWire デーモンとカメラが接続された環境でのみ実行する。
+//! CI の Device Test ジョブが設定する環境変数 `VIDEO_DEVICE_DEVICE_TEST` がある場合だけ
+//! 実際の検証を行い、未設定の環境ではスキップする。
+
+#[cfg(enable_pipewire)]
+#[path = "helpers/device_test.rs"]
+mod device_test;
 
 #[cfg(enable_pipewire)]
 mod pipewire_tests {
+    use super::device_test;
     use shiguredo_video_device::VideoDeviceList;
 
     // デバイス列挙が成功し、フォーマット情報が空でないことを確認する
     #[test]
-    #[ignore = "PipeWire デーモンと実機カメラが必要なため cargo test -- --ignored で実行する"]
     fn pipewire_enumerate_returns_formats() {
+        if !device_test::device_test_enabled() {
+            eprintln!(
+                "pipewire_enumerate_returns_formats: VIDEO_DEVICE_DEVICE_TEST が未設定のためスキップします"
+            );
+            return;
+        }
+
         // PipeWire デーモンが起動していて、少なくとも 1 台のカメラが接続されていることを期待する
         let list = VideoDeviceList::enumerate_pipewire()
             .expect("PipeWire デーモンが起動していて、少なくとも 1 台のカメラが接続されていること");
@@ -50,8 +62,14 @@ mod pipewire_tests {
 
     // 複数デバイスがある場合に各デバイスの unique_id が重複していないことを確認する
     #[test]
-    #[ignore = "PipeWire デーモンと実機カメラが必要なため cargo test -- --ignored で実行する"]
     fn pipewire_multiple_devices_formats() {
+        if !device_test::device_test_enabled() {
+            eprintln!(
+                "pipewire_multiple_devices_formats: VIDEO_DEVICE_DEVICE_TEST が未設定のためスキップします"
+            );
+            return;
+        }
+
         let list =
             VideoDeviceList::enumerate_pipewire().expect("PipeWire デーモンが起動していること");
         if list.is_empty() {
@@ -72,8 +90,14 @@ mod pipewire_tests {
 
     // format_count と formats() の長さが一致することを確認する
     #[test]
-    #[ignore = "PipeWire デーモンと実機カメラが必要なため cargo test -- --ignored で実行する"]
     fn pipewire_format_index_bounds() {
+        if !device_test::device_test_enabled() {
+            eprintln!(
+                "pipewire_format_index_bounds: VIDEO_DEVICE_DEVICE_TEST が未設定のためスキップします"
+            );
+            return;
+        }
+
         let list =
             VideoDeviceList::enumerate_pipewire().expect("PipeWire デーモンが起動していること");
         if list.is_empty() {

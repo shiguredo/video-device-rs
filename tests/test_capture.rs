@@ -1,7 +1,8 @@
 //! ビデオデバイスの実機キャプチャテスト
 //!
-//! デバイスが接続された環境でのみ実行可能。
-//! `cargo test --workspace -- --ignored` で実行する。
+//! デバイスが接続された環境でのみ実行する。
+//! CI の Device Test ジョブが設定する環境変数 `VIDEO_DEVICE_DEVICE_TEST` がある場合だけ
+//! 実際の検証を行い、未設定の環境ではスキップする。
 //!
 //! バックエンドが 1 つも有効でないビルド (PBT の default-features = false など)
 //! ではコンパイル対象から外す。
@@ -12,14 +13,21 @@ use std::sync::Once;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
+#[path = "helpers/device_test.rs"]
+mod device_test;
+
 use shiguredo_video_device::{
     VideoCapture, VideoCaptureConfig, VideoDeviceList, VideoFrame, VideoFrameOwned,
 };
 
 /// デバイスが存在する環境で列挙が成功し、名前と ID が空でないことを確認する
 #[test]
-#[ignore = "実機のビデオデバイスが必要なため cargo test -- --ignored で実行する"]
 fn test_enumerate_devices() {
+    if !device_test::device_test_enabled() {
+        eprintln!("test_enumerate_devices: VIDEO_DEVICE_DEVICE_TEST が未設定のためスキップします");
+        return;
+    }
+
     let device_list = VideoDeviceList::enumerate().expect("デバイスの列挙に失敗しました");
 
     assert!(
@@ -37,8 +45,12 @@ fn test_enumerate_devices() {
 
 /// デバイスを掴んで 5 フレーム受信できることを確認する
 #[test]
-#[ignore = "実機のビデオデバイスが必要なため cargo test -- --ignored で実行する"]
 fn test_capture_frames() {
+    if !device_test::device_test_enabled() {
+        eprintln!("test_capture_frames: VIDEO_DEVICE_DEVICE_TEST が未設定のためスキップします");
+        return;
+    }
+
     let target_frames = 5;
     let timeout = Duration::from_secs(10);
 

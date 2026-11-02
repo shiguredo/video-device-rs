@@ -113,14 +113,20 @@ jobs:
       # システム設定のカメラ一覧にも runner バイナリを手動追加できないため、
       # macOS ではキャプチャテストを実行しない。
       # デバイス列挙 (device_list, device_info) は権限不要のため引き続き実行する。
-      - name: Run ignored tests (device required)
+      - name: Run device tests (device required)
         if: runner.os != 'macOS'
+        env:
+          # 実機デバイスが必要なテストを実行する
+          VIDEO_DEVICE_DEVICE_TEST: "1"
         run: |
-          cargo test --workspace -- --ignored
-      - name: Run ignored tests for pipewire (device required)
+          cargo test --workspace
+      - name: Run device tests for pipewire (device required)
         if: runner.os == 'Linux'
+        env:
+          # 実機デバイスが必要なテストを実行する
+          VIDEO_DEVICE_DEVICE_TEST: "1"
         run: |
-          cargo test --workspace --no-default-features --features default-pipewire -- --ignored
+          cargo test --workspace --no-default-features --features default-pipewire
       - name: Run device_list
         run: >
           cargo run --example device_list | jq -e
