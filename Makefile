@@ -2,7 +2,7 @@
 
 # 全テストを実行する
 test:
-	cargo test --workspace
+	cargo test --workspace --all-targets
 
 # 全テストカバレッジ付きで実行する
 cover:
@@ -14,11 +14,11 @@ pbt-with-cover:
 
 # cargo check を実行する
 check:
-	cargo check --workspace
+	cargo check --workspace --all-targets
 
 # cargo clippy を実行する
 clippy:
-	cargo clippy --workspace -- -D warnings
+	cargo clippy --workspace --all-targets -- -D warnings
 
 # cargo fmt を実行する
 fmt:

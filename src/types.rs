@@ -28,13 +28,13 @@ pub(crate) const VIDEO_PIXEL_FORMAT_MJPG: u32 = 0x47504A4D;
 /// それ以外 (Windows/mf) ではコンパイルエラーになる。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PixelFormat {
-    /// NV12 (YUV 4:2:0 semi-planar)
+    /// NV12 (YUV 4:2:0 セミプラナ)
     Nv12,
-    /// YUY2 (YUV 4:2:2 packed)
+    /// YUY2 (YUV 4:2:2 パック)
     Yuy2,
-    /// I420 (YUV 4:2:0 planar)
+    /// I420 (YUV 4:2:0 プラナ)
     I420,
-    /// MJPEG (Motion JPEG)
+    /// MJPEG (モーション JPEG)
     ///
     /// 圧縮された JPEG フレーム。デコードは利用者の責務。
     /// V4L2 バックエンド + `mjpeg` feature 有効時のみキャプチャ可能。
