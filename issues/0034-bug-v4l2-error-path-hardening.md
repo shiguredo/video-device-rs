@@ -5,7 +5,7 @@
 - Completed: {YYYY-MM-DD}
 - Model: qwen3.8-max-preview
 - Branch: feature/fix-v4l2-error-path-hardening
-- Polished: 2026-07-21
+- Polished: 2026-11-04
 
 ## 目的
 
@@ -15,45 +15,51 @@ V4L2 バックエンド（`src/video_v4l2.c`）の API 使用とエラーパス�
 
 - Medium。いずれもエラーパスの不備であり、通常パスでは発生しない
 - (1) は古いドライバでデバイス列挙が正しく動作しない可能性がある
-- (2) はカーネルリソースのリーク
+- (2) は fd クローズ時にカーネルが自動解放するため実害はないが、エラーパスで明示的に解放されない
 - (3) はエラー発生後にセッションの破棄・再作成が必要になる
 - `/review-code` の重要指摘として確認
 
 ## 現状
 
-### (1) V4L2_CAP_DEVICE_CAPS 未確認（src/video_v4l2.c:264, :270, :446-447）
+### (1) V4L2_CAP_DEVICE_CAPS 未確認（`video_v4l2_enumerate_devices`、`video_v4l2_session_create`）
 
 ```c
-// :264（video_v4l2_enumerate_devices）
+// video_v4l2_enumerate_devices
 if (!(cap.device_caps & V4L2_CAP_VIDEO_CAPTURE)) {
+    ...
+}
 
-// :270（video_v4l2_enumerate_devices）
+// video_v4l2_enumerate_devices
 if (!(cap.device_caps & V4L2_CAP_STREAMING)) {
+    ...
+}
 
-// :446-447（video_v4l2_session_create）
+// video_v4l2_session_create
 if (!(cap.device_caps & V4L2_CAP_VIDEO_CAPTURE) ||
     !(cap.device_caps & V4L2_CAP_STREAMING)) {
+    ...
+}
 ```
 
-V4L2 仕様では `cap.capabilities & V4L2_CAP_DEVICE_CAPS` がセットされている場合のみ `device_caps` が有効。未セットのドライバでは `device_caps` は不定値であり、正しいデバイスが列挙から漏れる。修正は 3 箇所（:264, :270, :446-447）に適用する。
+V4L2 仕様では `cap.capabilities & V4L2_CAP_DEVICE_CAPS` がセットされている場合のみ `device_caps` が有効。未セットのドライバでは `device_caps` は不定値であり、正しいデバイスが列挙から漏れる。修正は `video_v4l2_enumerate_devices` の 2 箇所と `video_v4l2_session_create` の 1 箇所、計 3 箇所に適用する。
 
-後方互換性: V4L2 仕様上 `capabilities` は全キャップビットのスーパーセットであるため、この修正は偽陰性（列挙漏れ）を減らすのみで、偽陽性（誤列挙）を導入しない。
+後方互換性: V4L2 仕様上 `capabilities` は物理デバイス全体の capabilities の union であり、`V4L2_CAP_DEVICE_CAPS` 非対応ドライバでは論理デバイス単位の capabilities を取得できない。そのため、同じ物理デバイスが複数の `/dev/video*` ノードを公開している場合、キャプチャ非対応のノードが列挙される可能性は残る。ただし、従来は `device_caps` が未設定（0 または不定値）のため列挙漏れが発生しており、本修正はその偽陰性を解消する。
 
-### (2) REQBUFS で確保したカーネルバッファのエラーパス処理（src/video_v4l2.c:380-428）
+### (2) REQBUFS で確保したカーネルバッファのエラーパス処理（`init_mmap`、`cleanup_mmap`）
 
-`init_mmap` 内で `VIDIOC_REQBUFS` が成功した後、`QUERYBUF` 失敗（:409）、`mmap` 失敗（:417）は `goto fail` → `cleanup_mmap` に至るが、`cleanup_mmap`（:367-378）は `munmap` + `free` のみで `VIDIOC_REQBUFS(count=0)` によるカーネル側バッファ解放を行わない。
+`init_mmap` 内で `VIDIOC_REQBUFS` が成功した後、`VIDIOC_QUERYBUF` 失敗、`mmap` 失敗は `goto fail` → `cleanup_mmap` に至るが、`cleanup_mmap` は `munmap` + `free` のみで `VIDIOC_REQBUFS(count=0)` によるカーネル側バッファ解放を行わない。
 
-なお、`calloc` 失敗（:396）と `req.count < 2`（:391-393）は `goto fail` を通らず直接 `return -1` する。これらのパスも REQBUFS 成功後のため、カーネルバッファが残る。
+なお、`calloc` 失敗と `req.count < 2` は `goto fail` を通らず直接 `return -1` する。これらのパスも REQBUFS 成功後のため、明示的な解放がないまま `close(fd)` を待つことになる。
 
-ただし、`init_mmap` 失敗後 `video_v4l2_session_create`（:511-514）は即座に `close(fd)` を呼ぶため、V4L2 の fd クローズ時自動解放により実際にはリークは発生しない。本修正は防御的硬化であり、`close(fd)` に依存しない明示的なリソース解放を目的とする。
+ただし、`init_mmap` 失敗後 `video_v4l2_session_create` は即座に `close(fd)` を呼ぶため、V4L2 の fd クローズ時自動解放により実際にはリークは発生しない。本修正は防御的硬化であり、`close(fd)` に依存しない明示的なリソース解放を目的とする。
 
 closed/0010 はユーザ空間の mmap/buffers リークを修正済み。本 issue はカーネル側 REQBUFS バッファの明示的解放を扱う。
 
-### (3) QBUF 部分失敗でセッションが回復不能に（src/video_v4l2.c:669-685）
+### (3) QBUF 部分失敗でセッションが回復不能に（`video_v4l2_session_start`）
 
-`video_v4l2_session_start` の QBUF ループで i 番目の QBUF が失敗すると -1 を返すが、0..i-1 は既にドライバのキューに入っている。STREAMOFF も dequeue も行われない。再 start 時に同じバッファを QBUF するとエラー（ドライバ依存で `EINVAL` や `EBUSY`）となり、destroy するまでセッションを再利用できない。
+`video_v4l2_session_start` の QBUF ループで i 番目の QBUF が失敗すると -1 を返すが、i > 0 の場合は 0..i-1 が既にドライバのキューに入っている。STREAMOFF も dequeue も行われない。再 start 時にキュー済みバッファを QBUF するとエラー（ドライバ依存で `EINVAL` や `EBUSY`）となり、destroy するまでセッションを再利用できない。
 
-また、QBUF ループが全件成功した後に STREAMON が失敗した場合（:683-684）も、全バッファがキューに残ったまま `return -1` する。このパスもキューリセットが必要。
+また、QBUF ループが全件成功した後に STREAMON が失敗した場合も、全バッファがキューに残ったまま `return -1` する。このパスもキューリセットが必要。
 
 ## 設計方針
 
@@ -67,11 +73,13 @@ if (!(caps & V4L2_CAP_VIDEO_CAPTURE)) { ... }
 if (!(caps & V4L2_CAP_STREAMING)) { ... }
 ```
 
+`video_v4l2_enumerate_devices` の 2 箇所と `video_v4l2_session_create` の 1 箇所で、この `caps` を使って判定する。
+
 ### (2) の修正
 
-`cleanup_mmap`（:367）は既に `struct VideoSession* session` を引数に取っており、`session->fd` にアクセス可能。`cleanup_mmap` 内で munmap ループの後、`free(session->buffers)` の前に `session->fd` を使って `VIDIOC_REQBUFS(count=0)` を呼ぶ。
+`cleanup_mmap` は既に `struct VideoSession* session` を引数に取っており、`session->fd` にアクセス可能。`cleanup_mmap` 内で munmap ループの後、`free(session->buffers)` の前に `session->fd` を使って `VIDIOC_REQBUFS(count=0)` を呼ぶ。このとき `struct v4l2_requestbuffers req` を `count = 0`、`type = V4L2_BUF_TYPE_VIDEO_CAPTURE`、`memory = V4L2_MEMORY_MMAP` で初期化して呼ぶ。
 
-`goto fail` を通らないパス（`req.count < 2`、`calloc` 失敗）も REQBUFS 成功後のため、これらのパスにも REQBUFS(count=0) を追加する。具体的には `req.count < 2` の `return -1` 前と `calloc` 失敗の `return -1` 前に `VIDIOC_REQBUFS(count=0)` を呼ぶ。
+`goto fail` を通らないパス（`req.count < 2`、`calloc` 失敗）も REQBUFS 成功後のため、これらのパスにも REQBUFS(count=0) を追加する。具体的には `req.count < 2` の `return -1` 前と `calloc` 失敗の `return -1` 前に、同じ `req` を初期化して `VIDIOC_REQBUFS(count=0)` を呼ぶ。
 
 ### (3) の修正
 
@@ -80,13 +88,13 @@ QBUF ループ失敗時と STREAMON 失敗時に `VIDIOC_STREAMOFF` を呼んで
 実装では `enum v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_CAPTURE;` を QBUF ループより前に宣言し、QBUF 失敗時と STREAMON 失敗時の両方で使用する。
 
 ```c
-// QBUF ループ失敗時（:676-678 相当）
+// QBUF ループ失敗時
 if (xioctl(session->fd, VIDIOC_QBUF, &buf) < 0) {
     xioctl(session->fd, VIDIOC_STREAMOFF, &type);
     return -1;
 }
 
-// STREAMON 失敗時（:683-684 相当）
+// STREAMON 失敗時
 if (xioctl(session->fd, VIDIOC_STREAMON, &type) < 0) {
     xioctl(session->fd, VIDIOC_STREAMOFF, &type);
     return -1;
@@ -95,7 +103,7 @@ if (xioctl(session->fd, VIDIOC_STREAMON, &type) < 0) {
 
 ## 完了条件
 
-- (1) `V4L2_CAP_DEVICE_CAPS` を確認してから `device_caps` を参照する（`:264`、`:270`、`:446-447` の 3 箇所）
+- (1) `V4L2_CAP_DEVICE_CAPS` を確認してから `device_caps` を参照する（`video_v4l2_enumerate_devices` の 2 箇所と `video_v4l2_session_create` の 1 箇所、計 3 箇所）。未セットの場合は `capabilities` を使う
 - (2) `cleanup_mmap` で `VIDIOC_REQBUFS(count=0)` を呼びカーネルバッファを解放する。`goto fail` を通らないパス（`req.count < 2`、`calloc` 失敗）にも REQBUFS(count=0) を追加する
 - (3) QBUF 部分失敗時と STREAMON 失敗時に STREAMOFF でキューをリセットする
 - `cargo build --workspace`（Linux、default features）が通る
