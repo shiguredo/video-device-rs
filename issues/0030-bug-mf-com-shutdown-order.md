@@ -5,11 +5,11 @@
 - Completed: {YYYY-MM-DD}
 - Model: qwen3.8-max-preview
 - Branch: feature/fix-mf-com-shutdown-order
-- Polished: 2026-07-21
+- Polished: 2026-11-04
 
 ## 目的
 
-`MfCaptureImpl::new()`（`src/capture_mf.rs:138-197`）の構築クロージャが失敗したとき、`move` クロージャが捕捉した `CoInitGuard` の drop により `CoUninitialize` が先に走り、その後の `MFShutdown()` が COM 未初期化状態で呼ばれる。MSDN の COM/MF 初期化契約に違反しており、同一プロセス内の後続 COM/MF 操作がクラッシュ・リーク・未定義動作を引き起こしうる。この解放順序を修正する。
+`MfCaptureImpl::new()`（`src/capture_mf.rs`）の構築クロージャが失敗したとき、`move` クロージャが捕捉した `CoInitGuard` の drop により `CoUninitialize` が先に走り、その後の `MFShutdown()` が COM 未初期化状態で呼ばれる。MSDN の COM/MF 初期化契約に違反しており、同一プロセス内の後続 COM/MF 操作がクラッシュ・リーク・未定義動作を引き起こしうる。この解放順序を修正する。
 
 ## 優先度根拠
 
@@ -19,7 +19,7 @@
 
 ## 現状
 
-`src/capture_mf.rs:145-196`:
+`src/capture_mf.rs` の `MfCaptureImpl::new` は次の構造になっている（簡略化）:
 
 ```rust
 let com_guard = CoInitGuard::new()?;                    // CoInitializeEx
@@ -36,13 +36,13 @@ if result.is_err() {
 }
 ```
 
-`move` クロージャが `com_guard` を捕捉し、`Ok` パスでのみ `Self` に move out する。`Err` を返す `?` 経路（`activate_device` 失敗、`create_source_reader` 失敗等）では `com_guard` はクロージャ内に残存し、`let result = ...;` 文の終わりでクロージャ一時オブジェクトが drop され `CoUninitialize` が走る。その後の `MFShutdown()` は COM が既に未初期化の状態で呼ばれる。
+`move` クロージャが `com_guard` を捕捉し、`Ok` パスでのみ `Self` に move out する。`Err` を返す `?` 経路（`activate_device` 失敗、`create_source_reader` 失敗等）では `com_guard` はクロージャの捕捉環境に残り、クロージャの呼び出しが `Err` を返した時点で `CoUninitialize` が走る。その後の `MFShutdown()` は COM が既に未初期化の状態で呼ばれる。
 
 ## 設計方針
 
 `com_guard` をクロージャの外で保持し、エラーパスで `MFShutdown()` の **後に** drop されるようにする。
 
-採用案: クロージャの戻り値を `Result<SessionData>` にし、`Self` の構築をクロージャ外で行う。これにより `com_guard` はクロージャに捕捉されず、Err 時は `MFShutdown()` → `com_guard` drop の順序が自然に保証される。`config` / `callback` もクロージャ外で `Self` に move できる。
+採用案: クロージャの戻り値を `Result<SessionData>` にし、`Self` の構築をクロージャ外で行う。クロージャは `config` を参照で借用するだけで、`com_guard` と `callback` は捕捉しない。これにより `com_guard` はクロージャの drop の影響を受けず、Err 時は `MFShutdown()` → `com_guard` drop の順序がコード構造で保証される。`config` / `callback` はクロージャの呼び出し後に `Self` へ move できる。
 
 ```rust
 let com_guard = CoInitGuard::new()?;
@@ -75,8 +75,9 @@ match result {
 
 ### 採用しない案
 
-- クロージャを `move` にせず構築ロジックを通常のブロックに展開する: 非 move クロージャでは `config` / `callback` を `Self` に move できないため、そのままではコンパイルが通らない
-- `com_guard` を `Option<CoInitGuard>` にし `take()` で取り出す: `move` クロージャと組み合わせると Option 全体がクロージャに捕捉され、Err 時にクロージャ drop で `Some(CoInitGuard)` が drop されるため機能しない
+- 構築ロジックを通常のブロックに展開する（クロージャを使わない）: ブロック内の `?` は `MfCaptureImpl::new` から直接 return するため、`MFShutdown()` を呼ぶ経路に到達しない
+- `move` でないクロージャで `Result<Self>` を返す: クロージャ本体が `com_guard` を `Self` に move するため、`move` の有無にかかわらず `com_guard` は値で捕捉され、Err 時にクロージャの呼び出しが `Err` を返した時点で `CoUninitialize` が先に走る。`move` を外すだけでは修正にならない
+- `com_guard` を `Option<CoInitGuard>` にし `take()` で取り出す: `move` クロージャと組み合わせると Option 全体がクロージャに捕捉され、Err 時にクロージャの呼び出しが `Err` を返した時点で `Some(CoInitGuard)` が drop されるため機能しない
 - `MFShutdown()` を `CoInitGuard::drop` の前に呼ぶことを型で強制する: 複雑すぎる。順序をコードで保証すれば十分
 
 ### 後方互換への影響
@@ -89,12 +90,12 @@ match result {
 
 ## 完了条件
 
-- `MfCaptureImpl::new()` のエラーパスで `MFShutdown()` が `CoUninitialize` より先に呼ばれる
+- `MfCaptureImpl::new()` のエラーパスで `MFShutdown()` が `CoUninitialize` より先に呼ばれる（コードレビューで、`com_guard` が `MFShutdown()` より後に drop されることを確認する）
 - `MfCaptureImpl::new()` の成功パスで `CoInitGuard` が `Self._com_guard` に正しく格納される
 - `cargo build --workspace`（Windows、default features）が通る
-- `cargo clippy --workspace --all-targets -- -D warnings` が通る
-- `cargo test --workspace` が通る
-- `CHANGES.md` の `## develop` に `[FIX]` エントリを追加する
+- `cargo clippy --workspace --all-targets -- -D warnings`（Windows）が通る
+- `cargo test --workspace`（Windows）が通る
+- `CHANGES.md` の `## develop` に `[FIX]` エントリを追加する（担当者行 `- @<github-id>` を含める）
 
 ## 解決方法
 
