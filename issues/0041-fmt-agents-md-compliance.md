@@ -2,7 +2,7 @@
 
 - Priority: Low
 - Created: 2026-07-20
-- Completed: {YYYY-MM-DD}
+- Completed: 2026-11-04
 - Model: qwen3.8-max-preview
 - Branch: feature/refactor-agents-md-compliance
 - Polished: {YYYY-MM-DD}
@@ -96,4 +96,12 @@ issue への言及を削除し、理由そのもの（CI の制約）だけを�
 
 ## 解決方法
 
-{完了時に記入}
+本 issue が列挙する 4 件は、いずれも既に修正済みで、現行の `develop` には残っていない。判定種別は「実装済み」である。起票時の行番号は現在ずれているため、以下ではシンボル名と現行ファイルの逐語引用で確認した。
+
+- (1) `tests/test_capture.rs` のログメッセージはすべて日本語になっている。`test_enumerate_devices` の `expect("デバイスの列挙に失敗しました")`、`test_capture_frames` の `panic!("フレーム {}/{} の受信がタイムアウトしました", i + 1, target_frames)`、`send_frame` の `eprintln!("test_capture_frames: フレームを破棄しました (チャネル満杯または受信側の切断)")` を確認した。修正はコミット `5a62685`（テストの規約違反を修正する）で行われている。
+- (2) `src/frame_math.rs` の `yuy2_packed_win_stride_doubled` テスト内のコメントは `// YUY2: 1 ピクセル 2 バイトのため stride = width * 2` になっており、英語コメントは残っていない（起票時の `:169` は現在 `:174`）。修正はコミット `f2f648d`（ソースコードと PBT を規約に合わせて整備する）で行われている。
+- (3) `src/video_pipewire.c` の `on_node_param` 内の fps コメントから「本 issue」「別 issue」の言及が削除され、`// fps は未取得のため仮値を埋める`、`// - 0.0 は CI の Device Test ジョブが all(.max_fps > 0) を要求しているため使えない`、`// - 正確な fps 抽出 (choice 形式の展開) は別途対応` になっている。修正はコミット `f2f648d`。
+- (4) `examples/device_list.rs`、`examples/device_info.rs`、`examples/camera_preview.rs` の `println!` / `eprintln!` / `expect` メッセージはすべて英語になっている。例えば `examples/device_list.rs` の `eprintln!("failed to enumerate devices: {e}")` を確認した。修正はコミット `eb8701f`（examples の引数パースとログメッセージを整備する）。
+- `tests/test_pipewire.rs` のログメッセージも日本語のままで、`test_capture.rs` との不統一は解消されている。
+- `CHANGES.md` の `## develop` の `### misc` には `[UPDATE] 公開 API のドキュメントとコメントを整備し、examples のログメッセージを英語に統一する` が存在する（コミット `260ec3e`）。
+- `cargo build --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`、`cargo test --workspace` を実行し、いずれも成功した（exit code 0）。
