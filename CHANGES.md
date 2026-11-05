@@ -40,6 +40,8 @@
   - @voluntas
 - [UPDATE] `#[ignore]` に実機デバイスが必要な理由を明示する
   - @voluntas
+- [UPDATE] camera_preview サンプルを raw_player 2026.3 に追従する
+  - @voluntas
 
 ## 2026.3.0
 
