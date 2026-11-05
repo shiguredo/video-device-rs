@@ -234,6 +234,16 @@ cargo run --example camera_preview
 cargo run --example camera_preview -- --resolution 1080p --fps 60
 ```
 
+## Agent Skills
+
+[Agent Skills](https://agentskills.io/) 形式のスキルを同梱しています。`gh skill install` コマンドで対応する AI エージェント (Claude Code, Cursor, GitHub Copilot, Gemini CLI 等) にインストールでき、エージェントがこのライブラリの API やバックエンドごとの挙動差を理解した上で支援できるようになります。
+
+```bash
+gh skill install shiguredo/video-device-rs shiguredo-video-device
+```
+
+スキルの内容はリポジトリに同梱している `shiguredo-video-device` スキルを参照してください。
+
 ## ライセンス
 
 Apache License 2.0
