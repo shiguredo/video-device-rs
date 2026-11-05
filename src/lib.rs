@@ -19,11 +19,18 @@
 //! **キャプチャコールバック内から** `stop` を呼ばないでください。
 //! 特に Windows ではキャプチャスレッドが `join` 自身しデッドロックしうるためです。
 
-mod capture;
-mod device;
+#![warn(missing_docs)]
+
 mod error;
 mod frame_math;
 mod types;
+
+// バックエンドが 1 つも有効でない場合 (PBT の default-features = false など) は
+// capture / device をコンパイル対象から外す
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf))]
+mod capture;
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf))]
+mod device;
 
 #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 mod capture_ffi;
@@ -37,7 +44,9 @@ mod capture_mf;
 #[cfg(enable_mf)]
 mod device_mf;
 
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf))]
 pub use capture::VideoCapture;
+#[cfg(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf))]
 pub use device::{VideoDevice, VideoDeviceList};
 pub use error::{Error, Result};
 pub use types::{

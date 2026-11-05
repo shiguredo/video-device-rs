@@ -1,3 +1,8 @@
+//! フレームデータのバイト長計算。
+//!
+//! NV12 / I420 / YUY2 / MJPEG の各フォーマットについて、キャプチャコールバックに
+//! 渡すスライスのバイト長を整数演算だけで求める純粋関数を提供する。
+
 /// NV12 の Y / UV プレーンのバイト長を計算する。負のストライドやオーバーフロー時は None。
 #[cfg(any(enable_avf, enable_v4l2, enable_pipewire))]
 pub(crate) fn nv12_plane_sizes(stride: i32, stride_uv: i32, height: i32) -> Option<(usize, usize)> {
@@ -166,7 +171,7 @@ mod tests {
     #[test]
     #[cfg(enable_mf)]
     fn yuy2_packed_win_stride_doubled() {
-        // YUY2: 2 bytes per pixel, so stride = width * 2
+        // YUY2: 1 ピクセル 2 バイトのため stride = width * 2
         assert_eq!(yuy2_packed_frame_bytes_win(640, 480), Some(640 * 2 * 480));
         assert_eq!(yuy2_packed_frame_bytes_win(0, 480), None);
     }

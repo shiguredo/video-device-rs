@@ -1,4 +1,7 @@
 //! Windows 用ビデオデバイス列挙 (Media Foundation)
+//!
+//! `MFEnumDeviceSources` で `IMFActivate` を列挙し、名前・一意識別子・
+//! 対応フォーマットを取得する。
 
 use std::ptr;
 

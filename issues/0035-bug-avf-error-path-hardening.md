@@ -5,7 +5,7 @@
 - Completed: {YYYY-MM-DD}
 - Model: qwen3.8-max-preview
 - Branch: feature/fix-avf-error-path-hardening
-- Polished: 2026-07-21
+- Polished: 2026-11-04
 
 ## 目的
 
@@ -20,21 +20,21 @@ macOS AVFoundation バックエンド（`src/video_avf.m`）のエラーパス�
 
 ## 現状
 
-### (1) CVPixelBufferLockBaseAddress の戻り値未確認（src/video_avf.m:37）
+### (1) `CVPixelBufferLockBaseAddress` の戻り値未確認（`src/video_avf.m` の `captureOutput:didOutputSampleBuffer:fromConnection:`）
 
 ```objc
 CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
 ```
 
-`CVReturn` の戻り値がチェックされていない。ロック失敗時に `CVPixelBufferGetBaseAddressOfPlane`（NV12: :50-51）や `CVPixelBufferGetBaseAddress`（YUY2: :62）が NULL や不正ポインタを返す。
+`CVReturn` の戻り値がチェックされていない。ロック失敗時に `CVPixelBufferGetBaseAddressOfPlane`（NV12 分岐）や `CVPixelBufferGetBaseAddress`（YUY2 分岐）が NULL や不正ポインタを返す。
 
 クラッシュ経路はフォーマットにより異なる:
-- **I420 パス**（:72-97）: :87-89 に実際に `memcpy` があり、NULL ソースでクラッシュする。stride=0 の場合 `calloc(1, 0)` の戻り値は実装定義で、非 NULL が返った場合 `memcpy(dst, NULL, 0)` は C 標準上 UB
-- **NV12 / YUY2 パス**: `memcpy` はなくポインタをコールバックに渡すだけ。Rust 側 `capture_ffi.rs:263` で `data.is_null()` チェックがあり NULL なら早期 return するが、NULL でない不正ポインタを `from_raw_parts` で参照した場合は UB
+- **I420 分岐**: `memcpy` があり、NULL ソースでクラッシュする。stride=0 の場合 `calloc(1, 0)` の戻り値は実装定義で、非 NULL が返った場合 `memcpy(dst, NULL, 0)` は C 標準上 UB
+- **NV12 / YUY2 分岐**: `memcpy` はなくポインタをコールバックに渡すだけ。Rust 側 `capture_ffi.rs` の `frame_callback` で `data.is_null()` チェックがあり NULL なら早期 return するが、NULL でない不正ポインタを `from_raw_parts` で参照した場合は UB
 
-ロック失敗時に `CVPixelBufferGetBytesPerRowOfPlane`（:52-53, :75-77）が 0 を返す可能性もある。NV12/YUY2 では Rust 側 `frame_math` が `stride <= 0` で `None` を返し早期 return するためクラッシュしない。
+ロック失敗時に `CVPixelBufferGetBytesPerRowOfPlane`（NV12 分岐と I420 分岐）が 0 を返す可能性もある。NV12/YUY2 では Rust 側 `frame_math` が `stride <= 0` で `None` を返し早期 return するためクラッシュしない。
 
-### (2) UTF8String が NULL を返した場合 strdup(NULL) で未定義動作（src/video_avf.m:197-201）
+### (2) `UTF8String` が NULL を返した場合 `strdup(NULL)` で未定義動作（`src/video_avf.m` の `video_avf_enumerate_devices`）
 
 ```objc
 const char* name = [device.localizedName UTF8String];
@@ -50,7 +50,7 @@ videoDevice->unique_id = strdup(uniqueId);
 
 ### (1) の修正
 
-`CVPixelBufferLockBaseAddress` の戻り値をチェックし、`kCVReturnSuccess` でない場合はコールバックを呼ばずに `return` する。ロック失敗時はバッファがロックされていないため、`CVPixelBufferUnlockBaseAddress`（:100）は呼ばなくてよい。
+`CVPixelBufferLockBaseAddress` の戻り値をチェックし、`kCVReturnSuccess` でない場合はコールバックを呼ばずに `return` する。ロック失敗時はバッファがロックされていないため、`CVPixelBufferUnlockBaseAddress` は呼ばなくてよい。
 
 ```objc
 CVReturn lockResult = CVPixelBufferLockBaseAddress(imageBuffer, kCVPixelBufferLock_ReadOnly);
@@ -66,7 +66,7 @@ if (lockResult != kCVReturnSuccess) {
 
 ### (2) の修正
 
-`UTF8String` の戻り値が NULL の場合、空文字列にフォールバックする。空文字列の `name` / `unique_id` を持つデバイスも列挙に含める（スキップしない）。`localizedName` / `uniqueID` が nil になることは現実的にほぼなく、空文字列での列挙は防御的フォールバックとして十分。空の `unique_id` でセッション作成を試みた場合、`video_avf_session_create`（:348-350）の `deviceWithUniqueID:` が nil を返し、:353-355 のデフォルトデバイスフォールバックに遷移する。クラッシュにはならず、実害は意図しないデバイスが選ばれる可能性に留まる。
+`UTF8String` の戻り値が NULL の場合、空文字列にフォールバックする。空文字列の `name` / `unique_id` を持つデバイスも列挙に含める（スキップしない）。`localizedName` / `uniqueID` が nil になることは現実的にほぼなく、空文字列での列挙は防御的フォールバックとして十分。空の `unique_id` でセッション作成を試みた場合、`video_avf_session_create` の `deviceWithUniqueID:` が nil を返し、デフォルトデバイスフォールバックに遷移する。クラッシュにはならず、実害は意図しないデバイスが選ばれる可能性に留まる。
 
 ```objc
 const char* name = [device.localizedName UTF8String];

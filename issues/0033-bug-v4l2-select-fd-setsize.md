@@ -5,11 +5,11 @@
 - Completed: {YYYY-MM-DD}
 - Model: qwen3.8-max-preview
 - Branch: feature/fix-v4l2-select-fd-setsize
-- Polished: 2026-07-21
+- Polished: 2026-11-04
 
 ## 目的
 
-V4L2 バックエンドのキャプチャスレッド（`src/video_v4l2.c:541-556`）が `select()` / `FD_SET` を使用している。`fd >= FD_SETSIZE`（通常 1024）の場合、`FD_SET` は `fd_set` の固定長ビット配列の境界外に書き込み、スタックバッファオーバーフロー（メモリ破壊）を引き起こす。`poll()` に置き換えて修正する。
+V4L2 バックエンドのキャプチャスレッド（`src/video_v4l2.c` の `capture_thread`）が `select()` / `FD_SET` を使用している。`fd >= FD_SETSIZE`（通常 1024）の場合、`FD_SET` は `fd_set` の固定長ビット配列の境界外に書き込み、スタックバッファオーバーフロー（メモリ破壊）を引き起こす。`poll()` に置き換えて修正する。
 
 ## 優先度根拠
 
@@ -21,7 +21,7 @@ V4L2 バックエンドのキャプチャスレッド（`src/video_v4l2.c:541-55
 
 ## 現状
 
-`src/video_v4l2.c:541-556`:
+`src/video_v4l2.c` の `capture_thread` のループ先頭:
 
 ```c
 while (atomic_load(&session->running)) {
@@ -40,7 +40,14 @@ while (atomic_load(&session->running)) {
         }
         break;
     }
-    // :563 以降（DQBUF 処理）は変更なし
+
+    if (r == 0) {
+        // タイムアウト
+        continue;
+    }
+
+    struct v4l2_buffer buf;
+    // 以降、既存の DQBUF / コールバック / requeue 処理は変更なし
 }
 ```
 
@@ -50,11 +57,11 @@ while (atomic_load(&session->running)) {
 
 `select()` を `poll()` に置き換える。
 
-1. `#include <poll.h>` を追加する（include ブロック :3-15 の `<linux/videodev2.h>`（:5）の次、アルファベット順）。`<sys/time.h>`（:14）は `v4l2_buffer.timestamp`（:576-577）が `struct timeval` 型のため維持する
-2. `fd_set` / `FD_ZERO` / `FD_SET` / `select` を `struct pollfd` / `poll` に置き換える。`struct pollfd pfd` は while ループ内に置き毎回初期化する（ループ外配置も検討したが、1 秒タイムアウトのループで毎回の構造体初期化は実測上無視でき、可読性を優先）
+1. `#include <poll.h>` を追加する（include ブロックの `<linux/videodev2.h>` の次、アルファベット順）。`<sys/time.h>` は `v4l2_buffer.timestamp` が `struct timeval` 型のため維持する
+2. `fd_set` / `FD_ZERO` / `FD_SET` / `select` を `struct pollfd` / `poll` に置き換える。`struct pollfd pfd` は while ループ内に置き毎回初期化する（ループ外配置も検討したが、1 秒タイムアウトのループで毎回の構造体初期化のコストは無視でき、可読性を優先）
 3. タイムアウトは `poll` の第 3 引数でミリ秒指定（1000ms）にする
-4. `POLLERR` / `POLLHUP` / `POLLNVAL` のチェックを追加する（fd 上のエラー状態を検出する。`select` では read 時のエラーとして現れる状態）。`POLLHUP` は USB カメラの物理取り外し等で返り、この場合キャプチャの継続は不可能なため `break` でスレッドを終了する。`POLLNVAL` は通常のライフサイクル（destroy が stop → pthread_join → close(fd) の順）では発生しないが、異常系の防御としてチェックする
-5. `POLLIN` でデータ読み取り可能（`select` の `r > 0` 相当）。エラーフラグを除外した後は `POLLIN` がセットされているため暗黙的に読み取り可能だが、防御的プログラミングとして `if (pfd.revents & POLLIN)` の明示チェックを追加する
+4. `POLLERR` / `POLLHUP` / `POLLNVAL` のチェックを追加する（fd 上のエラー状態を検出する。`select` では read 時のエラーとして現れる状態）。V4L2 の `vb2_poll` はストリーミングエラー時に `POLLERR` を返し、この場合キャプチャの継続は不可能なため `break` でスレッドを終了する。`POLLHUP` は V4L2 デバイスでは通常返らないが、fd の異常状態を表すフラグとして防御的にチェックする。`POLLNVAL` は通常のライフサイクル（destroy が stop → pthread_join → close(fd) の順）では発生しないが、異常系の防御としてチェックする
+5. `POLLIN` でデータ読み取り可能（`select` の `r > 0` 相当）。エラーフラグを除外した後に `POLLIN` がセットされている場合は読み取り可能だが、`POLLPRI` のみがセットされる場合もあるため、防御的プログラミングとして `if (pfd.revents & POLLIN)` の明示チェックを追加する
 
 ```c
 struct pollfd pfd = { .fd = session->fd, .events = POLLIN };
@@ -66,10 +73,10 @@ if (r < 0) {
 if (r == 0) { continue; }  // タイムアウト
 if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) { break; }
 if (!(pfd.revents & POLLIN)) { continue; }  // 防御的チェック
-// 以降、既存の DQBUF / コールバック / requeue 処理（:563 以降）は変更なし
+// 以降、既存の DQBUF / コールバック / requeue 処理は変更なし
 ```
 
-置換範囲は :542-561（`fd_set` 初期化からタイムアウトチェックまで）。:563 以降の DQBUF / コールバック / requeue 処理は変更なし。POLLERR / POLLIN チェックはタイムアウトチェックと DQBUF の間に挿入する。POLLERR と POLLIN が同時にセットされても POLLERR を優先して `break` する（エラー状態のデバイスからの DQBUF は不正データやエラーを返すため、キャプチャ継続は意味がない）。
+置換範囲は `capture_thread` のループ先頭にある `fd_set fds;` から `if (r == 0)` のタイムアウト処理まで。`struct v4l2_buffer buf;` 以降の DQBUF / コールバック / requeue 処理は変更なし。POLLERR / POLLIN チェックはタイムアウトチェックと DQBUF の間に挿入する。POLLERR と POLLIN が同時にセットされても POLLERR を優先して `break` する（エラー状態のデバイスからの DQBUF は不正データやエラーを返すため、キャプチャ継続は意味がない）。
 
 ### 採用しない案
 

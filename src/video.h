@@ -10,9 +10,10 @@ struct VideoDevice;
 struct VideoSession;
 
 // ピクセルフォーマット定数
+// 値は macOS の CVPixelBuffer が用いる FourCC ('420v' 等) に対応する
 #define VIDEO_PIXEL_FORMAT_NV12 0x3231564E  // '420v' (NV12)
 #define VIDEO_PIXEL_FORMAT_YUY2 0x32595559  // 'yuvs' (YUY2)
-#define VIDEO_PIXEL_FORMAT_I420 0x30323449  // 'I420'
+#define VIDEO_PIXEL_FORMAT_I420 0x30323449  // 'I420' (I420)
 // MJPEG は圧縮フォーマット。フレームは可変長の JPEG ペイロード。
 #define VIDEO_PIXEL_FORMAT_MJPG 0x47504A4D  // 'MJPG' (Motion JPEG, V4L2 互換)
 

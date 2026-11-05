@@ -93,7 +93,9 @@ impl FfiDeviceImpl {
             return Vec::new();
         }
 
-        let mut formats = Vec::with_capacity(count);
+        // C が報告する count は破損している可能性があり、事前確保すると
+        // 過大なメモリ消費につながるため、Vec::new() から push で伸ばす
+        let mut formats = Vec::new();
         for i in 0..count {
             // SAFETY: i は [0, count) の範囲であり、C 側が有効なインデックスに対して
             // フォーマット情報を返すことを保証している。

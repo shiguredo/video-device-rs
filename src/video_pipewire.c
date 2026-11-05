@@ -215,9 +215,9 @@ static void on_node_param(void* data, int seq, uint32_t id, uint32_t index, uint
     p->formats[p->format_count].width = width;
     p->formats[p->format_count].height = height;
     p->formats[p->format_count].pixel_format = pixel_format;
-    // fps は本 issue では未取得のため仮値を埋める
+    // fps は未取得のため仮値を埋める
     // - 0.0 は CI の Device Test ジョブが all(.max_fps > 0) を要求しているため使えない
-    // - 正確な fps 抽出 (choice 形式の展開) は別 issue で扱う
+    // - 正確な fps 抽出 (choice 形式の展開) は別途対応
     p->formats[p->format_count].min_fps = 1.0f;
     p->formats[p->format_count].max_fps = 30.0f;
     p->format_count++;
@@ -664,6 +664,7 @@ static void on_stream_state_changed(void* userdata,
     switch (state) {
         case PW_STREAM_STATE_ERROR:
             atomic_store(&session->stream_error, 1);
+            // エラー状態でもシグナルを送るため、次の case にフォールスルーする
             // fallthrough
         case PW_STREAM_STATE_STREAMING:
         case PW_STREAM_STATE_UNCONNECTED:
