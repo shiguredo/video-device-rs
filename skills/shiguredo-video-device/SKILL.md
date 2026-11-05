@@ -170,8 +170,8 @@ shiguredo_video_device = { version = "2026.4", features = ["pipewire", "mjpeg"] 
 - `VideoFrame` のスライスはコールバックの実行中にのみ有効。コールバック後も使うなら `frame.to_owned()` で `VideoFrameOwned` にコピーする
 - コールバックはバックエンドのキャプチャスレッドで実行される。重い処理をするとフレームが落ちるため、`sync_channel` + `try_send` などで別スレッドに渡す
 - `FnMut` ではないため、状態の更新には `Cell` / `RefCell` / `Mutex` / アトミック型などの内部可変性を使う。`Sync` を要求しないため、コールバックが並行して呼ばれることはない
-- コールバックは panic してはならない。macOS / Linux ではプロセスが abort しうる。Windows ではキャプチャスレッドが終了し、以降の `start()` が `Error::CaptureFaulted` になる。ライブラリは `catch_unwind` で吸収しない
-- コールバック内から `stop()` を呼んだり `VideoCapture` を drop したりしてはならない。Linux (V4L2 / PipeWire) では use-after-free、macOS と Windows ではデッドロックになりうる。停止はチャネルやフラグで別スレッドに通知し、そのスレッドで `stop()` を呼ぶ
+- コールバックは panic してはならない。macOS / Linux ではプロセスが abort しうる。Windows ではキャプチャスレッドが終了し、`stop()` の後の `start()` が `Error::CaptureFaulted` を返す (`stop()` を挟まない `start()` は実行中とみなして `Ok(())` を返す)。ライブラリは `catch_unwind` で吸収しない
+- コールバック内から `stop()` を呼んだり `VideoCapture` を drop したりしてはならない。Linux (V4L2 / PipeWire) では use-after-free、macOS ではデッドロックになりうる。Windows の `VideoCapture` は `!Send` のため、safe Rust ではコールバックに渡せない。停止はチャネルやフラグで別スレッドに通知し、そのスレッドで `stop()` を呼ぶ
 
 ## スレッド安全性
 
@@ -467,7 +467,7 @@ fn handle_frame(frame: &VideoFrame<'_>) {
 | `InvalidCaptureConfig(&'static str)` | 設定がプラットフォーム要件を満たさない | Windows: `width` / `height` / `fps` が 0 以下 |
 | `ComInitFailed` | COM の初期化に失敗した | Windows: STA で初期化済みのスレッドから呼んだ場合など |
 | `InvalidUtf8(&'static str)` | C 側の文字列が UTF-8 でない | FFI: `name()` / `unique_id()` |
-| `CaptureFaulted` | キャプチャスレッドの panic 後で再開できない | Windows: コールバックの panic 後の `start()`。新しい `VideoCapture` を作り直す |
+| `CaptureFaulted` | キャプチャスレッドの panic 後で再開できない | Windows: コールバックの panic 後に `stop()` を経た `start()`。新しい `VideoCapture` を作り直す |
 
 ## プラットフォーム固有の注意
 
@@ -493,7 +493,7 @@ fn handle_frame(frame: &VideoFrame<'_>) {
 2026.4.0 時点の制限。
 
 - 共通
-  - コールバック内での `stop()` 呼び出しと `VideoCapture` の drop は safe Rust で書けてしまうが、use-after-free やデッドロックを起こす
+  - FFI バックエンド (macOS / Linux) では、コールバック内での `stop()` 呼び出しと `VideoCapture` の drop が safe Rust で書けてしまい、use-after-free やデッドロックを起こす
   - FFI バックエンドはエラーの種別が粗く、権限拒否・デバイス不在・フォーマット非対応がいずれも `SessionCreateFailed` になる
 - macOS
   - 存在しない `device_id` を渡すと、既定デバイスで無言でキャプチャを始める
@@ -506,5 +506,7 @@ fn handle_frame(frame: &VideoFrame<'_>) {
   - `stop()` から `start()` を繰り返すと、内部の接続とストリームがリークする
   - 3840x2160 / 60fps を超える要求では、要求と異なる解像度・フレームレートがエラー無しで返る
   - 複数プレーンのバッファや想定外のフォーマットに交渉されると、`start()` は成功するがフレームが届かないことがある
+- Windows
+  - コールバックの panic でキャプチャスレッドが終了しても、`stop()` を挟まずに `start()` を呼ぶと `Ok(())` を返し、キャプチャは再開しない
 - ビルド
   - Linux で `--all-features` を指定すると `default-v4l2` と `default-pipewire` が同時に有効になり、ビルドスクリプトが panic する
