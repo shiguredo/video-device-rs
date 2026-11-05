@@ -11,17 +11,17 @@
 
 ## develop
 
-- [CHANGE] MSRV (`rust-version`) を 1.95 に上げる
-  - @voluntas
+## 2026.4.0
 
-- [FIX] `Cargo.toml` の `windows` 依存を MSRV 1.93 の cargo が解釈できる形式に修正する
+**リリース日**: 2026-11-05
+
+- [CHANGE] MSRV (`rust-version`) を 1.95 に上げる
   - @voluntas
 
 ### misc
 
 - [UPDATE] 実機デバイスが必要なテストを `#[ignore]` ではなく環境変数 `VIDEO_DEVICE_DEVICE_TEST` で判定するようにする
   - @voluntas
-
 - [ADD] `Error` の `Display` と `source` を検証する PBT を追加する
   - @voluntas
 - [UPDATE] PBT をプロパティベーステストフレームワーク noprop に移行し、`PixelFormat::Unknown` を生成対象に追加する
