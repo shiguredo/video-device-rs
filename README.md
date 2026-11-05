@@ -25,13 +25,10 @@ macOS / Linux / Windows に対応したビデオデバイスライブラリで�
 
 - クロスプラットフォームのカメラ列挙 / キャプチャ API
 - バックエンドを feature flag で選択可能
-  - macOS: AVFoundation (`avf`)
-  - Linux: V4L2 (`v4l2`) / PipeWire (`pipewire`)
-  - Windows: Media Foundation (`mf`)
 - コールバックによるフレーム受信
 - ピクセルフォーマット選択 (`NV12` / `YUY2` / `I420` / `MJPEG`)
 - Linux (V4L2) での MJPEG パススルーキャプチャ (`mjpeg` feature)
-- macOS / Linux はランタイム依存なし (Windows は `mf` feature 有効時に `windows` クレートを利用)
+- 実行時に依存するクレートは Windows (`mf` feature) の `windows` クレートのみ
 
 ## 対応プラットフォーム
 
@@ -44,6 +41,7 @@ Linux のパーミッションや PipeWire の注意点は [docs/LINUX.md](docs/
 ## 動作要件
 
 - Rust 1.95 以上 (`rust-version = "1.95"`)
+- macOS 14.0 以上 (`AVCaptureDeviceTypeExternal` を利用するため)
 
 ## feature
 
@@ -64,6 +62,9 @@ Linux のパーミッションや PipeWire の注意点は [docs/LINUX.md](docs/
 
 - 列挙: `VideoDeviceList::enumerate_avf()` / `enumerate_v4l2()` / `enumerate_pipewire()` / `enumerate_mf()`
 - キャプチャ: `VideoCapture::new_avf()` / `new_v4l2()` / `new_pipewire()` / `new_mf()`
+
+`default-*` を 1 つも有効にしていないプラットフォームでは、`VideoCapture::new()` と `VideoDeviceList::enumerate()` は存在しません。明示 API を使ってください。
+バックエンドを 1 つも有効にしていないプラットフォームでは、`VideoCapture` / `VideoDevice` / `VideoDeviceList` は公開されません。
 
 Linux では `v4l2` と `pipewire` を同時に有効化できます。
 両方有効なとき、既定は `default-v4l2` または `default-pipewire` のどちらか一方だけを指定します。
@@ -91,26 +92,39 @@ cargo build -p shiguredo_video_device --features mjpeg
 | `Mjpeg` | Motion JPEG (圧縮 JPEG ペイロード) | V4L2 + `mjpeg` feature のみ。デコードは利用者の責務 |
 | `Unknown(u32)` | 未知の FourCC | キャプチャ要求には使えません |
 
-ネゴシエーション結果が未知の FourCC になった場合、実装によってはユーザーコールバックにフレームが渡らないことがあります。
+ネゴシエーション結果が未知の FourCC になった場合、そのフレームはコールバックに渡りません。
 
 ## ビルド要件
 
 ### macOS
 
-追加の依存パッケージは不要です。
+Xcode Command Line Tools が必要です。
+ビルド時に bindgen が Xcode Command Line Tools に含まれる libclang を利用します。
+
+```bash
+xcode-select --install
+```
 
 ### Ubuntu (Linux)
 
 V4L2 バックエンド (デフォルト):
 
-追加の依存パッケージは不要です。
+ビルド時に bindgen が libclang を利用するため、`libclang-dev` が必要です。
+
+```bash
+sudo apt install libclang-dev
+```
+
 ビデオデバイスへのアクセス権限については [docs/LINUX.md](docs/LINUX.md) を参照してください。
 
 PipeWire バックエンド:
 
 ```bash
-sudo apt install libpipewire-0.3-dev
+sudo apt install libclang-dev libpipewire-0.3-dev pkg-config
 ```
+
+PipeWire バックエンドは `libpipewire-0.3` に動的リンクします。
+実行時には `libpipewire-0.3` の共有ライブラリと、動作中の PipeWire デーモンが必要です。
 
 ### Windows
 
@@ -194,23 +208,31 @@ capture.stop();
 
 キャプチャのライフサイクル:
 
+- `VideoCapture::new()` / `new_*()` はセッションを作るだけです。キャプチャは `start()` を呼ぶまで始まりません
 - `start()` は冪等です。既に running なら `Ok(())` を返します
-- `stop()` はブロッキングです。キャプチャスレッド / コールバックの完了を待ってから復帰します
+- macOS ではセッションが開始するまで、PipeWire ではストリーミング状態になるまで `start()` がブロックします
+- `stop()` はブロッキングです。キャプチャスレッド / コールバックの完了を待ってから復帰します。running でなければ何もしません
 - `stop()` 後の再 `start()` は許容します
-- PipeWire では `start()` がストリーミング状態になるまでブロックします
+- `VideoCapture` を drop すると、running なら `stop()` と同じブロッキング停止をしてからセッションを破棄します
+- Windows の `VideoCapture` は `Send` ではありません。作成したスレッドで使い、そのスレッドで drop してください
 
-コールバックに渡される `VideoFrame` のスライスは、その呼び出し中にのみ有効です。
-呼び出し後も保持する場合は `VideoFrame::to_owned()` でコピーしてください。
-キャプチャのコールバック内から `stop()` を呼ばないでください。特に Windows ではデッドロックしえます。
+フレームコールバックの制約:
 
-フレームコールバックは panic してはなりません。panic した場合、macOS / Linux (FFI) ではプロセスが abort しうる一方、Windows (Media Foundation) ではキャプチャスレッドが終了し、その後の再 `start` が `Error::CaptureFaulted` になります。
-`CaptureFaulted` になった場合は、同じ `VideoCapture` を再利用せず新しく構築し直してください。
+- コールバックに渡される `VideoFrame` のスライスは、その呼び出し中にのみ有効です。呼び出し後も保持する場合は `VideoFrame::to_owned()` でコピーしてください
+- コールバック内から `stop()` を呼んだり `VideoCapture` を drop したりしないでください。macOS ではデッドロックします。Linux (V4L2 / PipeWire) では `stop()` がコールバックの完了を待たずに戻るため、drop すると解放済みのメモリを参照します。停止はチャネルやフラグで別スレッドに通知し、そのスレッドで `stop()` を呼んでください
+- コールバックは panic してはなりません。panic した場合、macOS / Linux ではプロセスが abort することがあります。Windows ではキャプチャスレッドが終了し、`stop()` の後の再 `start()` が `Error::CaptureFaulted` を返します。`CaptureFaulted` になった場合は、同じ `VideoCapture` を再利用せず新しく構築し直してください
+
+macOS のカメラ権限:
+
+- カメラ権限が未決定の場合、`VideoCapture::new()` / `new_avf()` が OS の許可ダイアログを表示し、応答があるまで戻りません
+- 権限が拒否または制限されている場合は `Error::SessionCreateFailed` を返します
+- アプリバンドルとして配布する場合は、`Info.plist` に `NSCameraUsageDescription` キーが必要です
 
 ## サンプル
 
 ### デバイス一覧
 
-デバイス一覧を JSON で出力する。
+デバイス一覧を JSON で出力します。
 
 ```bash
 cargo run --example device_list
@@ -218,7 +240,7 @@ cargo run --example device_list
 
 ### デバイス情報
 
-デバイスごとのフォーマット詳細と統計情報を JSON で出力する。
+デバイスごとのフォーマット詳細と統計情報を JSON で出力します。
 
 ```bash
 cargo run --example device_info
@@ -226,13 +248,23 @@ cargo run --example device_info
 
 ### カメラプレビュー
 
-カメラ映像をキャプチャして raw-player でプレビュー表示する。
+カメラ映像をキャプチャして raw-player でプレビュー表示します。
+Esc キーで終了し、S キーで統計オーバーレイの表示を切り替えます。
 
 ```bash
 cargo run --example camera_preview -- --list-devices
 cargo run --example camera_preview
 cargo run --example camera_preview -- --resolution 1080p --fps 60
+cargo run --example camera_preview -- --video-device-id <デバイス ID> --duration 10
 ```
+
+| オプション | 説明 | 既定値 |
+| --- | --- | --- |
+| `--list-devices` | デバイス一覧を表示して終了する | |
+| `--video-device-id <ID>` | キャプチャするデバイスの ID (`--list-devices` が表示する `ID`) | バックエンドの既定デバイス |
+| `--resolution <RES>` | 解像度。`4k` / `2160p` / `1080p` / `720p` / `540p` または `1280x720` のような `WxH` 形式 | `720p` |
+| `--fps <FPS>` | フレームレート | `30` |
+| `--duration <SEC>` | 再生時間 (秒) | 無制限 |
 
 ## Agent Skills
 
@@ -242,7 +274,7 @@ cargo run --example camera_preview -- --resolution 1080p --fps 60
 gh skill install shiguredo/video-device-rs shiguredo-video-device
 ```
 
-スキルの内容はリポジトリに同梱している `shiguredo-video-device` スキルを参照してください。
+スキルの内容は [skills/shiguredo-video-device/SKILL.md](https://github.com/shiguredo/video-device-rs/blob/develop/skills/shiguredo-video-device/SKILL.md) を参照してください。
 
 ## ライセンス
 
