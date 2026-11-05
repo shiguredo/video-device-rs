@@ -5,7 +5,7 @@
 - Completed: {YYYY-MM-DD}
 - Model: deepseek-v4.1-flash:1017
 - Branch: feature/fix-non-default-feature-build
-- Polished: {YYYY-MM-DD}
+- Polished: 2026-11-05
 
 ## 目的
 
@@ -17,7 +17,7 @@ README / docs/LINUX.md は「`default-*` で選ばれていないバックエン
 cargo check --no-default-features --features avf --all-targets
 ```
 
-`examples/device_list.rs` / `examples/device_info.rs` / `examples/camera_preview.rs` / `tests/test_capture.rs` が `VideoDeviceList::enumerate` と `VideoCapture::new` を呼ぶが、これらは `enable_default_*` が定義されるときだけ公開される。examples / tests 側の `#[cfg]` は `any(enable_avf, enable_v4l2, enable_pipewire, enable_mf)` で判定しており、`enable_default_avf` を見ていない。
+`examples/device_list.rs` と `examples/device_info.rs` は `VideoDeviceList::enumerate()` を、`examples/camera_preview.rs` と `tests/test_capture.rs` は `VideoDeviceList::enumerate()` と `VideoCapture::new()` を呼ぶが、これらは `enable_default_*` が定義されるときだけ公開される。examples / tests 側の cfg は `any(enable_avf, enable_v4l2, enable_pipewire, enable_mf)` で判定しており、`enable_default_*` を見ていない。
 
 CI matrix の全構成が `default-*` を含むため、この破綻は一度も検出されない。
 
@@ -30,20 +30,26 @@ CI matrix の全構成が `default-*` を含むため、この破綻は一度も
 ## 現状
 
 - `src/capture.rs` の `VideoCapture::new` と `src/device.rs` の `VideoDeviceList::enumerate` は `#[cfg(any(enable_default_avf, enable_default_v4l2, enable_default_pipewire, enable_default_mf))]` で公開される
-- examples / tests の先頭は `#![cfg(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf))]` で、既定バックエンドの有無を見ていない
-- `cargo check --no-default-features --features avf --all-targets` は exit 101 になる
+- `tests/test_capture.rs` の先頭は `#![cfg(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf))]`、examples は `#[cfg(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf))]` で判定しており、`enable_default_*` を見ていない
+- macOS で `cargo check --no-default-features --features avf --all-targets` は exit 101 になる。Linux でも `cargo check --no-default-features --features v4l2 --all-targets` が exit 101 になり、`examples/device_list.rs` / `examples/device_info.rs` / `examples/camera_preview.rs` / `tests/test_capture.rs` の 4 ファイルで `E0599` になることを実測で確認済み
+- README の「`default-*` を 1 つも有効にしていないプラットフォームでは、`VideoCapture::new()` と `VideoDeviceList::enumerate()` は存在しません。明示 API を使ってください。」は既に記載済みで、変更は不要
 
 ## 設計方針
 
-- examples / tests の cfg を `any(enable_default_*)` に変更するか、明示 API（`enumerate_avf` / `new_avf` など）を使う版に分岐させる
-- CI に `--no-default-features --features <backend>` の check を追加する（関連 issue あり）
-- README に「既定 API は `default-*` 有効時のみ」であることを明記する
+- examples / tests は、`enable_default_*` が有効な場合は既定 API（`VideoDeviceList::enumerate()` / `VideoCapture::new()`）を、無効な場合は有効なバックエンドの明示 API（`enumerate_avf()` / `new_avf()` など）を呼ぶように変更する。`any(enable_default_*)` で examples / tests 全体をコンパイル対象から外す方式は採用しない（明示 API の動作をサンプルとテストで確認できなくなるため）
+- 明示 API を選ぶ場合の優先順は `avf` → `v4l2` → `pipewire` → `mf` とし、最初に有効なバックエンドを使う。Linux で `v4l2` と `pipewire` が同時に有効かつ `default-*` が無い場合は V4L2 を優先する（README / docs/LINUX.md の既定と同じ）
+- 変更対象は `examples/device_list.rs`、`examples/device_info.rs`、`examples/camera_preview.rs`、`tests/test_capture.rs`
+- CI への `--no-default-features --features <backend>` の check 追加は `issues/0058-update-ci-release-hardening.md` の「`--no-default-features` 構成が CI に無い」で扱う。本 issue では CI を変更しない。0058 の CI 追加では、`--no-default-features --features v4l2` など、既定バックエンド無しでバックエンド feature だけを有効にした構成を含める
 
 ## 完了条件
 
-- `cargo check --no-default-features --features avf --all-targets`（macOS）、`--features default-v4l2` を外した Linux 構成、`--features default-mf` を外した Windows 構成で、examples / tests を含めてコンパイルできる
-- 既定バックエンドありの既存構成が変わらない
-- CI で当該構成が検証される
+- macOS: `cargo check --no-default-features --features avf --all-targets` が通る
+- Linux: `cargo check --no-default-features --features v4l2 --all-targets`、`cargo check --no-default-features --features pipewire --all-targets`、`cargo check --no-default-features --features v4l2,pipewire --all-targets`、`cargo check --no-default-features --features mjpeg --all-targets` が通る
+- Windows: `cargo check --no-default-features --features mf --all-targets` が通る
+- `cargo check --no-default-features --all-targets`（バックエンド無し）が引き続き通る
+- 既定バックエンドありの既存構成（CI matrix の全構成）が変わらない。`cargo check --all-targets` と `cargo test --workspace` が通る
+- `cargo fmt --all --check` と `cargo clippy --workspace --all-targets -- -D warnings` が通る
+- `CHANGES.md` の `## develop` に `[FIX]` エントリを追加する
 
 ## 解決方法
 
