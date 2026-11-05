@@ -7,6 +7,7 @@
 //! cargo run --example camera_preview -- --list-devices
 //! cargo run --example camera_preview
 //! cargo run --example camera_preview -- --resolution 1080p --fps 60
+//! cargo run --example camera_preview -- --video-device-id <デバイス ID> --duration 10
 //! ```
 
 #[cfg(any(enable_avf, enable_v4l2, enable_pipewire, enable_mf))]
@@ -31,7 +32,7 @@ mod imp {
         duration: Option<f64>,
     }
 
-    /// 解像度指定 ("720p" / "1080p" / "4k" / "WxH") を (幅, 高さ) に変換する。
+    /// 解像度指定 ("4k" / "2160p" / "1080p" / "720p" / "540p" / "WxH") を (幅, 高さ) に変換する。
     fn parse_resolution(s: &str) -> Option<(i32, i32)> {
         match s.to_lowercase().as_str() {
             "4k" | "2160p" => Some((3840, 2160)),
@@ -60,12 +61,12 @@ mod imp {
             .is_present();
 
         let video_device_id: Option<String> = noargs::opt("video-device-id")
-            .doc("Video device ID (defaults to the first device)")
+            .doc("Video device ID (defaults to the backend's default device)")
             .take(&mut args)
             .present_and_then(|o| Ok::<_, &str>(o.value().to_string()))?;
 
         let (width, height) = noargs::opt("resolution")
-            .doc("Capture resolution: 720p, 1080p, 4k, or WxH")
+            .doc("Capture resolution: 4k, 2160p, 1080p, 720p, 540p, or WxH")
             .default("720p")
             .take(&mut args)
             .then(|o| {
