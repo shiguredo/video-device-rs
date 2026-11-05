@@ -37,7 +37,17 @@ Linux では次の feature を使います。
 
 ## V4L2
 
-デフォルトでは V4L2 が既定バックエンドです。追加の依存パッケージは不要です。
+デフォルトでは V4L2 が既定バックエンドです。
+
+### ビルド依存
+
+ビルド時に bindgen が libclang を利用するため、`libclang-dev` が必要です。
+
+```bash
+sudo apt install libclang-dev
+```
+
+### デバイス一覧の確認
 
 ```bash
 cargo run --example device_list
@@ -47,11 +57,14 @@ cargo run --example device_list
 
 ### ビルド依存
 
-PipeWire バックエンドのビルドには `libpipewire-0.3-dev` が必要です。
+PipeWire バックエンドのビルドには `libclang-dev` / `libpipewire-0.3-dev` / `pkg-config` が必要です。
 
 ```bash
-sudo apt install libpipewire-0.3-dev
+sudo apt install libclang-dev libpipewire-0.3-dev pkg-config
 ```
+
+PipeWire バックエンドは `libpipewire-0.3` に動的リンクします。
+実行時には `libpipewire-0.3` の共有ライブラリと、動作中の PipeWire デーモンが必要です。
 
 ### 既定バックエンドを PipeWire にする
 
