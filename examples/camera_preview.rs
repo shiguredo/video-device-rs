@@ -1,7 +1,7 @@
 //! カメラ映像をキャプチャして raw-player でプレビュー表示するサンプル
 //!
 //! shiguredo_video_device でカメラ映像を取得し、
-//! raw_player::VideoPlayer でリアルタイム表示する。
+//! raw_player::video_player::VideoPlayer でリアルタイム表示する。
 //!
 //! ```
 //! cargo run --example camera_preview -- --list-devices
@@ -16,7 +16,8 @@ mod imp {
     use std::sync::mpsc::sync_channel;
     use std::time::Instant;
 
-    use raw_player::{KEYCODE_ESCAPE, VideoPlayer};
+    use raw_player::event::KEYCODE_ESCAPE;
+    use raw_player::video_player::VideoPlayer;
     use shiguredo_video_device::{
         PixelFormat, VideoCapture, VideoCaptureConfig, VideoDeviceList, VideoFrame, VideoFrameOwned,
     };
@@ -173,7 +174,10 @@ mod imp {
     }
 
     /// VideoFrame の PixelFormat に応じて適切な enqueue メソッドを呼び出す。
-    fn enqueue_video_frame(player: &VideoPlayer, frame: &VideoFrame<'_>) -> raw_player::Result<()> {
+    fn enqueue_video_frame(
+        player: &VideoPlayer,
+        frame: &VideoFrame<'_>,
+    ) -> raw_player::error::Result<()> {
         if frame.width <= 0 || frame.height <= 0 {
             static LOG: Once = Once::new();
             LOG.call_once(|| {
